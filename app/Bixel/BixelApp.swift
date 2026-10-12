@@ -9,6 +9,7 @@ import SwiftUI
 struct BixelApp: App {
     init() {
         SubscriptionManager.shared.configure()
+        _ = AdManager.shared
         AIService.setup()
         RemoteRouters.install()
     }
@@ -24,6 +25,7 @@ struct BixelApp: App {
                 Button("Unlock Lifetime Ad-Free…") { post(.studioUnlockLifetime) }
                 Button("Manage Purchases…") { post(.studioCustomerCenter) }
                 Button("Restore Purchases") { post(.studioRestorePurchases) }
+                Button("Clear Purchase Cache") { post(.studioClearPurchaseCache) }
                 Divider()
             }
             CommandGroup(replacing: .undoRedo) {

@@ -1,8 +1,8 @@
-# Bixel Studio Website Media
+# OpenBixel Website Media
 
-This directory holds the official screenshots featured on the [Bixel Studio Website](../../index.html) and in the [Handbook](../../handbook/index.html).
+This directory holds the official screenshots featured on the [OpenBixel Website](../../index.html) and in the [Handbook](../../handbook/index.html).
 
-These finalized product images are used by the Bixel Studio website and handbook.
+These finalized product images are used by the OpenBixel website and handbook.
 They are marketing artwork and documentation media, not a substitute for the
 actual macOS app or for App Store review screenshots.
 

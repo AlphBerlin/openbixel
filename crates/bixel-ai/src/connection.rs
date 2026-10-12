@@ -155,6 +155,14 @@ impl ConnectionConfig {
         if self.provider == ProviderChoice::ChatgptCodex {
             self.models.vision = self.models.text.clone();
             self.models.image = self.models.text.clone();
+        } else if self.provider == ProviderChoice::OpenRouter {
+            let defaults = AiSettings::default();
+            if self.models.vision.trim().is_empty() {
+                self.models.vision = defaults.vision_model;
+            }
+            if self.models.image.trim().is_empty() {
+                self.models.image = defaults.image_model;
+            }
         }
     }
 
@@ -282,6 +290,7 @@ pub struct ProviderHandle {
     pub image_gen: Option<Arc<dyn crate::image_gen::ImageGenerator>>,
     pub vision: Option<Arc<Vision>>,
     pub readiness: ModelReadiness,
+    pub text_vision_capable: bool,
 }
 
 impl ProviderHandle {
@@ -289,7 +298,7 @@ impl ProviderHandle {
     pub fn text_model_config(&self) -> goose_providers::model::ModelConfig {
         let mut config =
             goose_providers::model::ModelConfig::new(self.config.models.text.clone());
-        config.supports_vision = Some(self.readiness.vision.ready);
+        config.supports_vision = Some(self.text_vision_capable);
         config
     }
 
@@ -434,9 +443,14 @@ fn vision_capability(provider: &str, model: &str) -> Option<bool> {
     Some(canonical.modalities.input.contains(&Modality::Image))
 }
 
+struct OpenRouterProbe {
+    vision_capable: Option<bool>,
+    text_vision_capable: Option<bool>,
+}
+
 /// Lightweight network validation for the OpenRouter text role: the key must
 /// be accepted and the model listed by `GET {base}/models`.
-fn probe_openrouter(cfg: &ConnectionConfig) -> Result<(), String> {
+fn probe_openrouter(cfg: &ConnectionConfig) -> Result<OpenRouterProbe, String> {
     let key = cfg.api_key.as_deref().unwrap_or("").trim();
     let url = format!("{}/models", cfg.base_url.trim_end_matches('/'));
     let text = reqwest::blocking::Client::new()
@@ -448,20 +462,35 @@ fn probe_openrouter(cfg: &ConnectionConfig) -> Result<(), String> {
         .map_err(|e| format!("provider unreachable: {e}"))?;
     let v: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("unexpected /models response: {e}"))?;
-    let listed = v
+    let models = v
         .get("data")
         .and_then(|d| d.as_array())
-        .map(|models| {
-            models.iter().any(|m| {
-                m.get("id").and_then(|id| id.as_str()) == Some(cfg.models.text.trim())
-            })
-        })
-        .unwrap_or(false);
-    if listed {
-        Ok(())
-    } else {
-        Err(format!("model `{}` is not listed by the provider", cfg.models.text))
+        .ok_or_else(|| "unexpected /models response format".to_string())?;
+
+    let text_entry = models.iter().find(|m| {
+        m.get("id").and_then(|id| id.as_str()) == Some(cfg.models.text.trim())
+    });
+    if text_entry.is_none() {
+        return Err(format!("model `{}` is not listed by the provider", cfg.models.text));
     }
+
+    let has_image_input = |entry: Option<&serde_json::Value>| {
+        entry.and_then(|m| {
+            m.get("architecture")
+                .and_then(|a| a.get("input_modalities"))
+                .and_then(|im| im.as_array())
+                .map(|arr| arr.iter().any(|val| val.as_str() == Some("image")))
+        })
+    };
+
+    let vision_entry = models.iter().find(|m| {
+        m.get("id").and_then(|id| id.as_str()) == Some(cfg.models.vision.trim())
+    });
+
+    Ok(OpenRouterProbe {
+        vision_capable: has_image_input(vision_entry),
+        text_vision_capable: has_image_input(text_entry),
+    })
 }
 
 /// Build (and cache, via the returned handle) a provider for this credential
@@ -512,19 +541,28 @@ pub fn connect(
             .map_err(|e| AiError::Provider(format!("ChatGPT sign-in failed: {e}")))?;
     }
 
-    let text_probe = if cfg.validate {
+    let (text_probe, probed_vision, probed_text_vision) = if cfg.validate {
         match cfg.provider {
-            ProviderChoice::OpenRouter => probe_openrouter(&cfg),
+            ProviderChoice::OpenRouter => match probe_openrouter(&cfg) {
+                Ok(probe) => (Ok(()), probe.vision_capable, probe.text_vision_capable),
+                Err(e) => (Err(e), None, None),
+            },
             // Codex tokens are validated lazily at first request.
-            ProviderChoice::ChatgptCodex => Ok(()),
+            ProviderChoice::ChatgptCodex => (Ok(()), Some(true), Some(true)),
         }
     } else {
-        Ok(())
+        (Ok(()), None, None)
     };
     let vision_capable = if cfg.models.vision.trim().is_empty() {
         None
     } else {
-        vision_capability(cfg.provider.goose_name(), cfg.models.vision.trim())
+        probed_vision.or_else(|| vision_capability(cfg.provider.goose_name(), cfg.models.vision.trim()))
+    };
+    let text_vision_capable = match cfg.provider {
+        ProviderChoice::ChatgptCodex => true,
+        ProviderChoice::OpenRouter => probed_text_vision
+            .or_else(|| vision_capability("openrouter", cfg.models.text.trim()))
+            .unwrap_or(false),
     };
     let image_backend_ready = match cfg.provider {
         ProviderChoice::OpenRouter => cfg.image_api_key().is_some(),
@@ -561,6 +599,7 @@ pub fn connect(
         image_gen,
         vision,
         readiness,
+        text_vision_capable,
     }))
 }
 

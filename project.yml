@@ -24,20 +24,10 @@ settings:
     ENABLE_HARDENED_RUNTIME: true
     DEAD_CODE_STRIPPING: false
 
-packages:
-  RevenueCat:
-    url: https://github.com/RevenueCat/purchases-ios-spm.git
-    from: "5.16.0"
-
 targets:
   Bixel:
     type: application
     platform: macOS
-    dependencies:
-      - package: RevenueCat
-        product: RevenueCat
-      - package: RevenueCat
-        product: RevenueCatUI
     sources:
       - path: app/Bixel
         excludes:
@@ -83,7 +73,13 @@ targets:
         NSHighResolutionCapable: true
         ITSAppUsesNonExemptEncryption: false
         NSHumanReadableCopyright: "© 2026 Ajith Berlin A"
-        RevenueCatAPIKey: "$(REVENUECAT_API_KEY)"
+        PayPalClientID: "$(PAYPAL_CLIENT_ID)"
+        PayPalClientSecret: "$(PAYPAL_CLIENT_SECRET)"
+        PayPalEnv: "$(PAYPAL_ENV)"
+        CFBundleURLTypes:
+          - CFBundleURLName: com.bixel.studio.paypal
+            CFBundleURLSchemes:
+              - bixel
         NSPrincipalClass: NSApplication
         NSLocalNetworkUsageDescription: "Bixel can pair with your iPad on the local network to sync projects and share the AI assistant."
         NSBonjourServices:
@@ -113,7 +109,7 @@ targets:
       - name: Build Rust engine
         script: |
           set -euo pipefail
-          "$SRCROOT/scripts/configure-revenuecat-info.sh"
+          "$SRCROOT/scripts/configure-paypal-info.sh"
           "$SRCROOT/scripts/build-rust.sh"
         basedOnDependencyAnalysis: false
         showEnvVars: false
@@ -122,11 +118,6 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
-    dependencies:
-      - package: RevenueCat
-        product: RevenueCat
-      - package: RevenueCat
-        product: RevenueCatUI
     sources:
       - path: app/Bixel
         excludes:
@@ -160,7 +151,13 @@ targets:
         CFBundleVersion: "1"
         ITSAppUsesNonExemptEncryption: false
         NSHumanReadableCopyright: "© 2026 Ajith Berlin A"
-        RevenueCatAPIKey: "$(REVENUECAT_API_KEY)"
+        PayPalClientID: "$(PAYPAL_CLIENT_ID)"
+        PayPalClientSecret: "$(PAYPAL_CLIENT_SECRET)"
+        PayPalEnv: "$(PAYPAL_ENV)"
+        CFBundleURLTypes:
+          - CFBundleURLName: com.bixel.studio.paypal
+            CFBundleURLSchemes:
+              - bixel
         NSLocalNetworkUsageDescription: "Bixel connects to your Mac on the local network to sync projects and share the AI assistant."
         NSBonjourServices:
           - "_bixel-remote._tcp"
@@ -192,7 +189,7 @@ targets:
       - name: Build Rust engine
         script: |
           set -euo pipefail
-          BIXEL_INFO_PLIST_PATH="$SRCROOT/app/Bixel/Info-iOS.plist" "$SRCROOT/scripts/configure-revenuecat-info.sh"
+          BIXEL_INFO_PLIST_PATH="$SRCROOT/app/Bixel/Info-iOS.plist" "$SRCROOT/scripts/configure-paypal-info.sh"
           "$SRCROOT/scripts/build-rust.sh"
         basedOnDependencyAnalysis: false
         showEnvVars: false

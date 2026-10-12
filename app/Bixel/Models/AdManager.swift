@@ -178,7 +178,49 @@ final class AdManager: ObservableObject {
         remoteRefreshTimer = nil
     }
 
-    private func loadRemoteAds() {
+    static let fallbackAds: [AdItem] = [
+        AdItem(
+            id: "langcity_001",
+            advertiser: "Langcity",
+            headline: "Learn Japanese Like a Game",
+            description: "Explore Tokyo, talk to NPCs, and level up real fluency with a pixel-art RPG.",
+            callToAction: "Play the Demo",
+            iconSystemName: "book.fill",
+            iconURL: URL(string: "https://langcity.alphberlin.com/assets/ad/langcity_icon.png"),
+            imageURL: URL(string: "https://langcity.alphberlin.com/assets/ad/langcity_001.jpg"),
+            accentColor: Color(red: 0.98, green: 0.47, blue: 0.28),
+            destinationURL: URL(string: "https://langcity.alphberlin.com/play")!,
+            badgeText: "Sponsored"
+        ),
+        AdItem(
+            id: "dinertech_001",
+            advertiser: "DinerTech",
+            headline: "The Restaurant Operating System",
+            description: "DinerTech unifies ordering, payments, kitchen display & POS in one system.",
+            callToAction: "Try It Free",
+            iconSystemName: "fork.knife",
+            iconURL: URL(string: "https://langcity.alphberlin.com/assets/ad/dinertech_icon.png"),
+            imageURL: URL(string: "https://langcity.alphberlin.com/assets/ad/dinertech_001.jpg"),
+            accentColor: Color(red: 0.18, green: 0.72, blue: 0.62),
+            destinationURL: URL(string: "https://www.dinertech.app")!,
+            badgeText: "Sponsored"
+        ),
+        AdItem(
+            id: "alphberlin_001",
+            advertiser: "AlphBerlin",
+            headline: "Your Business, Automated",
+            description: "AlphBerlin builds AI workflows, websites & cloud systems for growing businesses.",
+            callToAction: "Get a Free Quote",
+            iconSystemName: "sparkles",
+            iconURL: URL(string: "https://langcity.alphberlin.com/assets/ad/alphberlin_icon.png"),
+            imageURL: URL(string: "https://langcity.alphberlin.com/assets/ad/alphberlin_001.jpg"),
+            accentColor: Color(red: 0.34, green: 0.55, blue: 0.98),
+            destinationURL: URL(string: "https://www.alphberlin.com")!,
+            badgeText: "Sponsored"
+        )
+    ]
+
+    func loadRemoteAds() {
         guard !subscriptionManager.isAdFree else {
             self.shouldShowAds = false
             self.ads = []
@@ -208,12 +250,18 @@ final class AdManager: ObservableObject {
             } catch is CancellationError {
                 // A purchase or a newer refresh cancelled this request.
             } catch {
-                // Keep a previously loaded remote inventory if one exists and user is not ad-free.
-                if self.subscriptionManager.isAdFree || self.ads.isEmpty {
+                if !self.subscriptionManager.isAdFree {
+                    // Fall back to house ads so free-tier users always see the sponsor unit
+                    self.ads = Self.fallbackAds
+                    self.currentAdIndex = 0
+                    self.shouldShowAds = true
+                    self.startRotation()
+                } else {
+                    self.ads = []
                     self.shouldShowAds = false
                     self.stopRotation()
                 }
-                print("[AdManager] Remote ad feed unavailable: \(error.localizedDescription)")
+                print("[AdManager] Remote ad feed unavailable, using house fallbacks: \(error.localizedDescription)")
             }
         }
     }

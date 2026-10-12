@@ -41,7 +41,7 @@ if [[ -f "$PRODUCTION_ENV_FILE" ]]; then
   log "Loading production app config: $PRODUCTION_ENV_FILE"
   load_build_env "$PRODUCTION_ENV_FILE"
 else
-  warn "No $PRODUCTION_ENV_FILE found; RevenueCat production key must be supplied in the environment."
+  log "No $PRODUCTION_ENV_FILE found; using environment or sandbox defaults."
 fi
 
 # ---------------------------------------------------------------------------
@@ -74,7 +74,9 @@ APPSTORE_APP_SPECIFIC_PASSWORD="${APPSTORE_APP_SPECIFIC_PASSWORD:-}"
 APPSTORE_SKIP_UPLOAD="${APPSTORE_SKIP_UPLOAD:-0}"
 APPSTORE_GIT_PUSH="${APPSTORE_GIT_PUSH:-0}"
 APPSTORE_GIT_REMOTE="${APPSTORE_GIT_REMOTE:-origin}"
-REVENUECAT_API_KEY="${REVENUECAT_API_KEY:-}"
+PAYPAL_CLIENT_ID="${PAYPAL_CLIENT_ID:-}"
+PAYPAL_CLIENT_SECRET="${PAYPAL_CLIENT_SECRET:-}"
+PAYPAL_ENV="${PAYPAL_ENV:-sandbox}"
 
 SKIP_UPLOAD=0
 SKIP_BUILD=0
@@ -100,7 +102,7 @@ Usage: scripts/publish-appstore.sh [options]
 Build Bixel Studio for the Mac App Store, export a signed .pkg, optionally
 validate + upload it to App Store Connect, and optionally push the release tag.
 
-Production RevenueCat configuration is read from .env; App Store Connect
+Production PayPal configuration is read from .env; App Store Connect
 configuration is read from .env.deploy. Any value can also be passed as an
 environment variable or overridden with a CLI flag.
 
@@ -156,9 +158,7 @@ validate_config() {
   [[ -n "$APPSTORE_BUNDLE_ID" ]] || missing+=("APPSTORE_BUNDLE_ID")
   [[ -f "$ENTITLEMENTS_PATH" ]] || missing+=("entitlements file ($ENTITLEMENTS_PATH)")
 
-  if [[ "$SKIP_BUILD" -eq 0 ]]; then
-    [[ -n "${REVENUECAT_API_KEY//[[:space:]]/}" ]] || missing+=("REVENUECAT_API_KEY in $PRODUCTION_ENV_FILE")
-  fi
+  # PayPal keys default to sandbox if not provided in environment
 
   if [[ "$APPSTORE_SIGNING_STYLE" == "manual" ]]; then
     [[ -n "$APPSTORE_PROVISIONING_PROFILE" ]] || missing+=("APPSTORE_PROVISIONING_PROFILE")
@@ -223,7 +223,7 @@ cat <<EOF
   identity:       $APPSTORE_CODE_SIGN_IDENTITY
   profile:        ${APPSTORE_PROVISIONING_PROFILE:-(automatic)}
   entitlements:   $ENTITLEMENTS_PATH
-  revenuecat:     $([[ -n "${REVENUECAT_API_KEY//[[:space:]]/}" ]] && mask_build_secret "$REVENUECAT_API_KEY" || echo "not configured")
+  paypal:         $([[ -n "${PAYPAL_CLIENT_ID//[[:space:]]/}" ]] && mask_build_secret "$PAYPAL_CLIENT_ID" || echo "sandbox (default)")
   archive:        $ARCHIVE_PATH
   pkg:            $PKG_PATH
   skip upload:    $SKIP_UPLOAD
@@ -357,7 +357,9 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
     -destination "generic/platform=macOS"
     -archivePath "$ARCHIVE_PATH"
     -derivedDataPath "$DERIVED_DATA"
-    "REVENUECAT_API_KEY=$REVENUECAT_API_KEY"
+    "PAYPAL_CLIENT_ID=$PAYPAL_CLIENT_ID"
+    "PAYPAL_CLIENT_SECRET=$PAYPAL_CLIENT_SECRET"
+    "PAYPAL_ENV=$PAYPAL_ENV"
     "${SIGN_ARGS[@]}"
   )
   if [[ "$APPSTORE_SIGNING_STYLE" == "automatic" ]]; then

@@ -1,4 +1,4 @@
-# Publishing Bixel Studio to the Mac App Store
+# Publishing OpenBixel to the Mac App Store
 
 This guide covers building a signed Mac App Store package and uploading it to
 App Store Connect with `scripts/publish-appstore.sh`.
@@ -76,7 +76,7 @@ APPSTORE_BUNDLE_ID=com.bixel.studio
 APPSTORE_VERSION=1.0.0
 APPSTORE_SIGNING_STYLE=manual
 APPSTORE_CODE_SIGN_IDENTITY="Apple Distribution"
-APPSTORE_PROVISIONING_PROFILE="Bixel Studio App Store"
+APPSTORE_PROVISIONING_PROFILE="OpenBixel App Store"
 APPSTORE_API_KEY_ID=ABC123DEFG
 APPSTORE_API_ISSUER_ID=00000000-0000-0000-0000-000000000000
 ```
@@ -145,7 +145,7 @@ build/appstore/ExportOptions.plist
 build/appstore/export/Bixel.pkg
 ```
 
-After upload, open **App Store Connect → My Apps → Bixel Studio → TestFlight**.
+After upload, open **App Store Connect → My Apps → OpenBixel → TestFlight**.
 Once processing finishes, attach the build to a version and submit for review.
 
 ---
@@ -254,7 +254,7 @@ unavailable.
 
 ### 6.7 After upload
 
-Open **App Store Connect → My Apps → Bixel Studio → TestFlight** (or **Builds**).
+Open **App Store Connect → My Apps → OpenBixel → TestFlight** (or **Builds**).
 Processing takes 5–30 minutes. When it is ready:
 
 1. Go to the **App Store** tab → your version → **Build** → select the build.
@@ -298,7 +298,7 @@ xcodebuild -exportArchive -archivePath build/appstore/Bixel.xcarchive \
 ## 8. Known App Store limitations (review these before submitting)
 
 The Mac App Store **requires the App Sandbox**, which the dev/DMG builds do not
-use. Some Bixel features may be rejected or need to be disabled for the Store
+use. Some OpenBixel features may be rejected or need to be disabled for the Store
 build:
 
 - **Subprocess execution** — `crates/bixel-core/src/jobs.rs` and goose's

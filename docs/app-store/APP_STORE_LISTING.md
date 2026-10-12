@@ -1,4 +1,4 @@
-# App Store Connect — data to enter for Bixel Studio
+# App Store Connect — data to enter for OpenBixel
 
 Copy/paste reference for every field App Store Connect asks for. Suggested copy
 is provided; replace anything marked **(your choice)** with your own.
@@ -12,7 +12,7 @@ is provided; replace anything marked **(your choice)** with your own.
 
 | Field | Limit | Suggested value |
 |---|---|---|
-| App Name | 30 | `Bixel Studio` |
+| App Name | 30 | `OpenBixel` |
 | Subtitle | 30 | `Pixel art & game asset studio` |
 | Bundle ID | — | `com.bixel.studio` |
 | SKU | — | `BIXEL-MAC-001` **(your choice, internal only)** |
@@ -79,7 +79,7 @@ Answer the questionnaire honestly. Expected outcome: **4+ / Everyone**.
 ### Description (4,000 char limit)
 
 ```
-Bixel Studio is a native pixel-art and 2D game-asset studio for Mac — draw, animate, and build tilemaps in one focused workspace.
+OpenBixel is a native pixel-art and 2D game-asset studio for Mac — draw, animate, and build tilemaps in one focused workspace.
 
 DRAW & ANIMATE
 • Layered raster editor with brush, eraser, fill, line, rectangle, ellipse and eyedropper tools
@@ -95,14 +95,14 @@ TILEMAP DESIGNER
 AI ASSISTANT
 • Built-in assistant that turns prompts into pixel art and spritesheets
 • Predict the next animation frame, compress palettes and remove backgrounds
-• Connect OpenRouter or sign in with ChatGPT (Codex); keys stay in the macOS Keychain
+• Connect OpenRouter or custom API keys; keys stay securely in the macOS Keychain
 
 BUILT FOR THE MAC
 • Native SwiftUI + Metal, fast and fully offline for everything except AI actions
 • Projects autosave locally; your art never leaves your Mac unless you ask the AI to use it
 • Optimised for Apple silicon
 
-Whether you're prototyping a game jam or shipping a full tileset, Bixel Studio keeps the whole pixel pipeline in one place.
+Whether you're prototyping a game jam or shipping a full tileset, OpenBixel keeps the whole pixel pipeline in one place.
 ```
 
 ### Keywords (100 char limit, comma-separated, no spaces)
@@ -130,7 +130,7 @@ Draw, animate and build tilemaps in one native Mac studio. Includes an AI assist
 Select the uploaded build (see `PUBLISHING.md`). Set **What's New in This Version**:
 
 ```
-First public release of Bixel Studio for Mac.
+First public release of OpenBixel for Mac.
 ```
 
 ### Copyright
@@ -170,31 +170,30 @@ previews (video) are optional.
 | Field | Value |
 |---|---|
 | Sign-in required? | **No** |
-| Demo account | Not required. The AI features need an OpenRouter key or ChatGPT login, which reviewers supply themselves; all non-AI features work offline. |
+| Demo account | Not required. The AI features need an OpenRouter API key, which reviewers supply themselves; all non-AI features work offline. |
 | Contact | Your name, email, phone **(your choice)** |
 
 ### Notes for the reviewer
 
 ```
-Bixel Studio is a fully local pixel-art editor. No account is required and all
+OpenBixel is a fully local pixel-art editor. No account is required and all
 drawing, animation and tilemap features work offline.
 
-The optional AI assistant requires the reviewer to connect an OpenRouter API key
-or sign in with ChatGPT; without one, the AI panel shows a connection prompt and
-the rest of the app is unaffected.
+The optional AI assistant requires the reviewer to connect an OpenRouter API key;
+without one, the AI panel shows a connection prompt and the rest of the app is
+unaffected.
 
 All projects are stored locally under the app container. The app does not collect
 analytics.
 
-The Devices pane provides an optional Mac host for the paired Bixel iPad app.
+The Devices pane provides an optional Mac host for the paired OpenBixel iPad app.
 To test it, open Settings → Devices, enable “Remote Access,” and choose “Show
-pairing code.” When enabled, Bixel creates a Network.framework `NWListener` and
+pairing code.” When enabled, OpenBixel creates a Network.framework `NWListener` and
 advertises the Bonjour service `_bixel-remote._tcp` so a paired iPad can initiate
 encrypted local-network connections for project sync and the Mac-hosted AI
 assistant. The listener is off by default and is only started after the user
-enables Remote Access. The ChatGPT (Codex) sign-in flow also uses a localhost
-callback on port 1455; OpenRouter, Codex, and the ad feed use outgoing HTTPS
-connections.
+enables Remote Access. Outgoing network connections are limited to OpenRouter
+and the house ad feed.
 ```
 
 ---
@@ -223,11 +222,11 @@ Connect before submitting:
 | Field | Suggested value |
 |---|---|
 | Type | Non-Consumable |
-| Reference Name | `Bixel Lifetime Unlock` |
+| Reference Name | `OpenBixel Lifetime Unlock` |
 | Product ID | `bixel_ad_free` **(must match the RevenueCat product)** |
 | Price | Tier of your choice |
 | Display Name | `Lifetime Unlock` |
-| Description | `Unlock Bixel Studio forever and remove all ads.` |
+| Description | `Unlock OpenBixel forever and remove all ads.` |
 | Review screenshot | A screenshot of the in-app purchase screen. |
 
 Link the product to the RevenueCat entitlement/offering and add the IAP to the

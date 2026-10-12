@@ -29,6 +29,12 @@ enum AppSettings {
     }
 
     static func requestOpen() {
+        #if os(macOS)
+        NSApp.activate(ignoringOtherApps: true)
+        if case .legacySelector = route(for: ProcessInfo.processInfo.operatingSystemVersion) {
+            _ = openLegacy()
+        }
+        #endif
         NotificationCenter.default.post(name: openRequest, object: nil)
     }
 
@@ -114,6 +120,7 @@ private struct ModernAppSettingsOpener: View {
                 if openOnAppear { openSettings() }
             }
             .onReceive(NotificationCenter.default.publisher(for: AppSettings.openRequest)) { _ in
+                NSApp.activate(ignoringOtherApps: true)
                 openSettings()
             }
     }
@@ -128,6 +135,7 @@ private struct LegacyAppSettingsOpener: View {
                 if openOnAppear { _ = AppSettings.openLegacy() }
             }
             .onReceive(NotificationCenter.default.publisher(for: AppSettings.openRequest)) { _ in
+                NSApp.activate(ignoringOtherApps: true)
                 _ = AppSettings.openLegacy()
             }
     }

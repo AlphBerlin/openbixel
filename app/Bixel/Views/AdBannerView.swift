@@ -12,7 +12,7 @@ struct AdBannerView: View {
     @ObservedObject private var subscriptionManager = SubscriptionManager.shared
     @ObservedObject private var adManager = AdManager.shared
 
-    /// Callback to open the RevenueCat paywall.
+    /// Callback to open the PayPal paywall.
     var onPresentPaywall: () -> Void
 
     @State private var isHovered = false

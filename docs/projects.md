@@ -8,7 +8,7 @@ assistant turn; stop it and wait for completion before switching.
 The host resolves `FileManager.applicationSupportDirectory` on macOS (and sandbox `documentDirectory` on iOS), then uses:
 
 ```
-Bixel/Projects/<project UUID>/
+OpenBixel/Projects/<project UUID>/
   project.json
   document.json
   assistant.json

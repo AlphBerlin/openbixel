@@ -24,6 +24,17 @@ struct SubscriptionEntitlementTests {
         precondition(!UserDefaults.standard.bool(forKey: SubscriptionManager.userDefaultsAdFreeKey), "Revoked entitlement must clear UserDefaults")
         precondition(!AdManager.shared.shouldShowAds, "Ads stay hidden until a remote creative is available")
 
+        // Test resilient product ID matching
+        precondition(SubscriptionManager.isMatchingLifetimeProduct("bixel_ad_free"), "Direct ID must match")
+        precondition(SubscriptionManager.isMatchingLifetimeProduct("com.bixel.studio.bixel_ad_free"), "Bundle-prefixed ID must match")
+        precondition(SubscriptionManager.isMatchingLifetimeProduct("com.bixel.studio.ad_free"), "Short bundle ID must match")
+        precondition(SubscriptionManager.isMatchingLifetimeProduct("BIXEL_AD_FREE"), "Case-insensitive ID must match")
+        precondition(!SubscriptionManager.isMatchingLifetimeProduct("bixel_other_product"), "Unrelated product must not match")
+
+        // Test StorefrontManager integration
+        let sfManager = StorefrontManager.shared
+        _ = sfManager.isChinaStorefront
+
         manager.resetForTesting()
         print("Subscription entitlement tests passed")
     }

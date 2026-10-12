@@ -22,7 +22,9 @@ if [[ -f "$DEV_ENV_FILE" ]]; then
   echo "==> Loading development app config: $DEV_ENV_FILE"
   load_build_env "$DEV_ENV_FILE"
 fi
-REVENUECAT_API_KEY="${REVENUECAT_API_KEY:-}"
+PAYPAL_CLIENT_ID="${PAYPAL_CLIENT_ID:-}"
+PAYPAL_CLIENT_SECRET="${PAYPAL_CLIENT_SECRET:-}"
+PAYPAL_ENV="${PAYPAL_ENV:-sandbox}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -60,10 +62,10 @@ done
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "Configuration"
   echo "  environment: $DEV_ENV_FILE"
-  if [[ -n "${REVENUECAT_API_KEY//[[:space:]]/}" ]]; then
-    echo "  revenuecat:  $(mask_build_secret "$REVENUECAT_API_KEY")"
+  if [[ -n "${PAYPAL_CLIENT_ID//[[:space:]]/}" ]]; then
+    echo "  paypal:      $(mask_build_secret "$PAYPAL_CLIENT_ID") ($PAYPAL_ENV)"
   else
-    echo "  revenuecat:  not configured"
+    echo "  paypal:      sandbox (default)"
   fi
   echo "Dry run — no changes made."
   exit 0
@@ -91,7 +93,6 @@ restore_project_yml() {
 trap restore_project_yml EXIT
 
 if [[ "$DO_BUILD" -eq 1 ]]; then
-  require_build_env_value "$REVENUECAT_API_KEY" "REVENUECAT_API_KEY in $DEV_ENV_FILE"
   PROJECT_YML_BACKUP="$(mktemp "${TMPDIR:-/tmp}/bixel-project-yml.XXXXXX")"
   cp -p "$PROJECT_YML" "$PROJECT_YML_BACKUP"
 
@@ -112,7 +113,9 @@ if [[ "$DO_BUILD" -eq 1 ]]; then
     ARCHS=arm64 \
     ONLY_ACTIVE_ARCH=NO \
     -derivedDataPath build/DerivedData \
-    REVENUECAT_API_KEY="$REVENUECAT_API_KEY" \
+    PAYPAL_CLIENT_ID="$PAYPAL_CLIENT_ID" \
+    PAYPAL_CLIENT_SECRET="$PAYPAL_CLIENT_SECRET" \
+    PAYPAL_ENV="$PAYPAL_ENV" \
     CODE_SIGN_IDENTITY="-" \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGNING_ALLOWED=NO \

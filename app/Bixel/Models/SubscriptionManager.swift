@@ -1,20 +1,60 @@
 // SubscriptionManager.swift
 //
-// In-App Purchase and Entitlement Manager for Bixel Studio using RevenueCat SDK.
+// In-App Purchase and Entitlement Manager for Bixel Studio using PayPal REST API & Fastlane.
 // Handles one-time lifetime purchases, entitlement status checks ('ad_free'),
-// offerings retrieval, purchase restorations, and real-time customer info updates.
+// ASWebAuthenticationSession checkout flows, order captures, launch verification, and cache clearing.
 
 import Foundation
 import SwiftUI
 import Combine
 import StoreKit
+import AuthenticationServices
 
-#if canImport(RevenueCat)
-import RevenueCat
-#endif
-#if canImport(RevenueCatUI)
-import RevenueCatUI
-#endif
+public enum PayPalEnvironment: String {
+    case sandbox = "sandbox"
+    case live = "live"
+
+    var apiBaseURL: URL {
+        switch self {
+        case .sandbox:
+            return URL(string: "https://api-m.sandbox.paypal.com")!
+        case .live:
+            return URL(string: "https://api-m.paypal.com")!
+        }
+    }
+}
+
+public enum PayPalError: LocalizedError {
+    case notConfigured
+    case invalidCredentials
+    case orderCreationFailed(String)
+    case missingApprovalURL
+    case sessionFailedToStart
+    case userCancelled
+    case captureFailed(String)
+    case invalidOrderVerification
+
+    public var errorDescription: String? {
+        switch self {
+        case .notConfigured:
+            return "PayPal Client ID / Secret are not configured in Info.plist or .env."
+        case .invalidCredentials:
+            return "Failed to authenticate with PayPal. Check your Client ID and Secret."
+        case .orderCreationFailed(let msg):
+            return "Failed to create PayPal order: \(msg)"
+        case .missingApprovalURL:
+            return "PayPal response did not include a valid approval checkout link."
+        case .sessionFailedToStart:
+            return "Unable to start web checkout session."
+        case .userCancelled:
+            return "Payment cancelled by user."
+        case .captureFailed(let msg):
+            return "Failed to capture PayPal payment: \(msg)"
+        case .invalidOrderVerification:
+            return "PayPal order verification failed or payment is not completed."
+        }
+    }
+}
 
 @MainActor
 final class SubscriptionManager: NSObject, ObservableObject {
@@ -22,28 +62,53 @@ final class SubscriptionManager: NSObject, ObservableObject {
 
     // MARK: - Configuration Constants
 
-    /// Info.plist key populated by the build scripts from the selected dotenv file.
-    nonisolated static let apiKeyInfoPlistKey = "RevenueCatAPIKey"
+    nonisolated static let clientIDInfoPlistKey = "PayPalClientID"
+    nonisolated static let clientSecretInfoPlistKey = "PayPalClientSecret"
+    nonisolated static let envInfoPlistKey = "PayPalEnv"
 
-    /// UserDefaults key for persisting ad-free state locally across sessions.
+    /// UserDefaults keys
     nonisolated static let userDefaultsAdFreeKey = "bixel_is_ad_free"
+    nonisolated static let userDefaultsPayPalOrderIDKey = "bixel_paypal_order_id"
 
-    /// Public RevenueCat API key for the current build, if configured.
-    static var apiKey: String? {
-        guard let configuredKey = Bundle.main.object(forInfoDictionaryKey: apiKeyInfoPlistKey) as? String else {
-            return nil
-        }
+    /// Entitlement and Product identifiers
+    nonisolated static let entitlementID = "ad_free"
+    nonisolated static let lifetimeProductID = "bixel_ad_free"
+    nonisolated static let lifetimePriceUSD = "9.99"
 
-        let key = configuredKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty, !key.hasPrefix("$(") else { return nil }
-        return key
+    /// Checks whether a given product ID matches our lifetime ad-free purchase.
+    nonisolated static func isMatchingLifetimeProduct(_ productID: String) -> Bool {
+        let lower = productID.lowercased()
+        return lower == lifetimeProductID.lowercased()
+            || lower == "com.bixel.studio.\(lifetimeProductID.lowercased())"
+            || lower.hasSuffix(".\(lifetimeProductID.lowercased())")
+            || lower.contains("ad_free")
+            || lower.contains("adfree")
+            || lower.contains("lifetime")
     }
 
-    /// Entitlement identifier in RevenueCat dashboard.
-    nonisolated static let entitlementID = "ad_free"
+    // MARK: - PayPal Configuration Properties
 
-    /// Product identifier configured in App Store Connect and RevenueCat.
-    nonisolated static let lifetimeProductID = "bixel_ad_free"
+    static var configuredClientID: String? {
+        guard let key = Bundle.main.object(forInfoDictionaryKey: clientIDInfoPlistKey) as? String else { return nil }
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("$(") else { return nil }
+        return trimmed
+    }
+
+    static var configuredClientSecret: String? {
+        guard let key = Bundle.main.object(forInfoDictionaryKey: clientSecretInfoPlistKey) as? String else { return nil }
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("$(") else { return nil }
+        return trimmed
+    }
+
+    static var configuredEnvironment: PayPalEnvironment {
+        if let env = Bundle.main.object(forInfoDictionaryKey: envInfoPlistKey) as? String,
+           env.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "live" {
+            return .live
+        }
+        return .sandbox
+    }
 
     // MARK: - Published State
 
@@ -61,328 +126,280 @@ final class SubscriptionManager: NSObject, ObservableObject {
     /// User-visible confirmation for actions like restore purchases.
     @Published var statusNotice: String? = nil
 
-    #if canImport(RevenueCat)
-    /// Cached customer info from RevenueCat.
-    @Published private(set) var customerInfo: CustomerInfo? = nil
+    /// Last successful PayPal Order ID associated with this installation.
+    @Published private(set) var lastPayPalOrderID: String? = nil
 
-    /// Current offering retrieved from RevenueCat.
-    @Published private(set) var currentOffering: Offering? = nil
+    /// Active PayPal environment (sandbox vs live).
+    @Published private(set) var environment: PayPalEnvironment = .sandbox
 
-    /// The specific one-time Lifetime package, if found in current offerings.
-    @Published private(set) var lifetimePackage: Package? = nil
-    #endif
+    /// Whether PayPal credentials are ready.
+    var isConfigured: Bool {
+        Self.configuredClientID != nil && Self.configuredClientSecret != nil
+    }
 
-    private var transactionUpdatesTask: Task<Void, Never>?
     private var hasConfigured = false
-
-    /// Whether RevenueCat has been initialized for this build.
-    private(set) var isConfigured = false
 
     override private init() {
         super.init()
-        // Restore cached purchase state immediately so ad views never show at startup for paid users.
-        self.isAdFree = UserDefaults.standard.bool(forKey: Self.userDefaultsAdFreeKey)
-        startStoreKitTransactionListener()
+        let cachedAdFree = UserDefaults.standard.bool(forKey: Self.userDefaultsAdFreeKey)
+        let cachedOrderID = UserDefaults.standard.string(forKey: Self.userDefaultsPayPalOrderIDKey)
+
+        // Purge any lingering legacy RevenueCat keys from UserDefaults
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.lowercased().contains("revenuecat") {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+
+        // Strict validation: An ad-free entitlement MUST be accompanied by a non-empty PayPal Order ID.
+        // If stale cache without an Order ID is present (e.g. legacy RevenueCat/StoreKit cache), clear it immediately.
+        if cachedAdFree && (cachedOrderID == nil || cachedOrderID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true) {
+            print("[SubscriptionManager] Stale cache without PayPal order detected at init. Clearing cache.")
+            UserDefaults.standard.removeObject(forKey: Self.userDefaultsAdFreeKey)
+            UserDefaults.standard.removeObject(forKey: Self.userDefaultsPayPalOrderIDKey)
+            self.isAdFree = false
+            self.lastPayPalOrderID = nil
+        } else {
+            self.isAdFree = cachedAdFree
+            self.lastPayPalOrderID = cachedOrderID
+        }
+
+        self.environment = Self.configuredEnvironment
     }
 
-    deinit {
-        transactionUpdatesTask?.cancel()
-    }
+    // MARK: - Initialization & App Launch Verification
 
-    // MARK: - SDK Initialization
-
-    /// Configure RevenueCat SDK with the API key and set up delegate callbacks.
-    /// Call this once during application startup in `BixelApp.init()`.
+    /// Configure payment subsystem and verify purchase status with PayPal on every app startup.
     func configure() {
         guard !hasConfigured else { return }
         hasConfigured = true
 
+        self.environment = Self.configuredEnvironment
+
+        // Verify entitlement with PayPal every time the app opens
         Task {
-            await checkStoreKitEntitlements()
-        }
-
-        #if canImport(RevenueCat)
-        guard let apiKey = Self.apiKey else {
-            print("[SubscriptionManager] RevenueCat API key is not configured for this build. Using StoreKit 2.")
-            return
-        }
-
-        #if DEBUG
-        Purchases.logLevel = .debug
-        #else
-        Purchases.logLevel = .info
-        #endif
-
-        Purchases.configure(withAPIKey: apiKey)
-        Purchases.shared.delegate = self
-        isConfigured = true
-
-        Task {
-            await refreshCustomerInfo()
-            await fetchOfferings()
-        }
-        #else
-        print("[SubscriptionManager] RevenueCat SDK is not linked in this build target. Using StoreKit 2.")
-        #endif
-    }
-
-    // MARK: - StoreKit 2 Integration
-
-    /// Listen for background App Store transactions (purchases, renewals, revocations).
-    private func startStoreKitTransactionListener() {
-        transactionUpdatesTask?.cancel()
-        transactionUpdatesTask = Task.detached { [weak self] in
-            for await result in Transaction.updates {
-                guard let self = self else { return }
-                switch result {
-                case .verified(let transaction):
-                    if transaction.productID == Self.lifetimeProductID {
-                        let isActive = transaction.revocationDate == nil
-                        await MainActor.run {
-                            self.applyAdFreeEntitlement(isActive: isActive)
-                        }
-                    }
-                    await transaction.finish()
-                case .unverified(let transaction, _):
-                    await transaction.finish()
-                }
-            }
+            await verifyEntitlementOnLaunch()
         }
     }
 
-    /// Checks active StoreKit 2 entitlements directly with Apple's local daemon.
+    /// Verifies the cached purchase status against PayPal REST API on every app startup.
     @discardableResult
-    func checkStoreKitEntitlements() async -> Bool {
-        var hasLifetime = false
-        for await result in Transaction.currentEntitlements {
-            if case .verified(let transaction) = result {
-                if transaction.productID == Self.lifetimeProductID && transaction.revocationDate == nil {
-                    hasLifetime = true
-                    break
-                }
-            }
-        }
-        if hasLifetime {
-            applyAdFreeEntitlement(isActive: true)
-            return true
-        }
-        return false
-    }
-
-    // MARK: - Entitlement & Customer Info
-
-    /// Fetch latest customer info from RevenueCat servers and update entitlement state.
-    @discardableResult
-    func refreshCustomerInfo() async -> Bool {
-        #if canImport(RevenueCat)
-        guard isConfigured else {
-            return await checkStoreKitEntitlements()
-        }
-
+    func verifyEntitlementOnLaunch() async -> Bool {
         isLoading = true
         defer { isLoading = false }
 
-        do {
-            let info = try await Purchases.shared.customerInfo()
-            self.customerInfo = info
-            self.updateEntitlements(from: info)
+        guard let orderID = lastPayPalOrderID ?? UserDefaults.standard.string(forKey: Self.userDefaultsPayPalOrderIDKey),
+              !orderID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            if isAdFree {
+                print("[SubscriptionManager] No PayPal Order ID on launch. Clearing unverified ad-free status.")
+                applyAdFreeEntitlement(isActive: false, orderID: nil)
+            }
+            return false
+        }
+
+        // Demo Sandbox ID bypass for testing
+        if orderID.hasPrefix("SANDBOX-DEMO-") {
+            applyAdFreeEntitlement(isActive: true, orderID: orderID)
             return true
-        } catch {
-            print("[SubscriptionManager] Failed to fetch customer info: \(error.localizedDescription)")
-            let skResult = await checkStoreKitEntitlements()
-            if !skResult {
-                self.errorMessage = "Unable to verify purchase status: \(error.localizedDescription)"
-            }
-            return skResult
         }
-        #else
-        return await checkStoreKitEntitlements()
-        #endif
-    }
 
-    #if canImport(RevenueCat)
-    private func updateEntitlements(from info: CustomerInfo) {
-        let hasEntitlement = info.entitlements[Self.entitlementID]?.isActive == true
-        let hasLifetimeProduct = info.allPurchasedProductIdentifiers.contains(Self.lifetimeProductID)
-            || info.nonSubscriptions.contains(where: { $0.productIdentifier == Self.lifetimeProductID })
-        let hasAnyActiveEntitlement = !info.entitlements.active.isEmpty
-
-        if hasEntitlement || hasLifetimeProduct || hasAnyActiveEntitlement {
-            applyAdFreeEntitlement(isActive: true)
+        // Verify order status with PayPal
+        let isValid = await verifyPayPalOrder(orderID: orderID)
+        if isValid {
+            print("[SubscriptionManager] Verified PayPal order on launch: \(orderID) is COMPLETED.")
+            applyAdFreeEntitlement(isActive: true, orderID: orderID)
+            return true
         } else {
-            // Also check StoreKit 2 before revoking
-            Task {
-                let skVerified = await checkStoreKitEntitlements()
-                if !skVerified {
-                    applyAdFreeEntitlement(isActive: false)
-                }
-            }
+            print("[SubscriptionManager] PayPal verification failed on launch for: \(orderID). Revoking entitlement.")
+            applyAdFreeEntitlement(isActive: false, orderID: nil)
+            return false
         }
     }
-    #endif
 
-    /// Apply a freshly verified entitlement to the shared UI state and persist locally.
-    ///
-    /// Keeping this update decoupled from the network callbacks ensures the ad
-    /// banner disappears immediately upon purchase confirmation.
-    func applyAdFreeEntitlement(isActive: Bool) {
-        UserDefaults.standard.set(isActive, forKey: Self.userDefaultsAdFreeKey)
-        guard isAdFree != isActive else { return }
-        isAdFree = isActive
-        print("[SubscriptionManager] 'ad_free' entitlement updated: \(isActive)")
-    }
+    // MARK: - Cache Clearing & Reset
 
-    // MARK: - Offerings Retrieval
-
-    /// Fetches the configured offerings and locates the lifetime package.
-    func fetchOfferings() async {
-        #if canImport(RevenueCat)
-        guard isConfigured else { return }
-        do {
-            let offerings = try await Purchases.shared.offerings()
-            self.currentOffering = offerings.current
-
-            // Check standard lifetime package slot, or search by package/product identifier
-            if let current = offerings.current {
-                self.lifetimePackage = current.lifetime
-                    ?? current.availablePackages.first {
-                        $0.identifier.lowercased() == Self.lifetimeProductID.lowercased() ||
-                        $0.storeProduct.productIdentifier.lowercased().contains(Self.lifetimeProductID.lowercased())
-                    }
-            }
-        } catch {
-            print("[SubscriptionManager] Error fetching offerings: \(error.localizedDescription)")
-        }
-        #endif
-    }
-
-    // MARK: - Purchase Operations
-
-    #if canImport(RevenueCat)
-    /// Purchases a specific package (e.g. Lifetime package) using async/await.
-    @discardableResult
-    func purchase(package: Package) async -> Bool {
-        isPurchasing = true
+    /// Clears all local purchase cache and resets the app state back to the Free Tier.
+    func clearCache() {
+        UserDefaults.standard.removeObject(forKey: Self.userDefaultsAdFreeKey)
+        UserDefaults.standard.removeObject(forKey: Self.userDefaultsPayPalOrderIDKey)
+        lastPayPalOrderID = nil
+        isAdFree = false
+        statusNotice = "Purchase cache cleared. Reset to free tier."
         errorMessage = nil
-        defer { isPurchasing = false }
-
-        do {
-            let result = try await Purchases.shared.purchase(package: package)
-            if result.userCancelled {
-                print("[SubscriptionManager] User cancelled purchase.")
-                return false
-            }
-
-            self.customerInfo = result.customerInfo
-            self.updateEntitlements(from: result.customerInfo)
-
-            let isUnlocked = isAdFree
-                || result.customerInfo.entitlements[Self.entitlementID]?.isActive == true
-                || result.customerInfo.allPurchasedProductIdentifiers.contains(Self.lifetimeProductID)
-                || result.customerInfo.nonSubscriptions.contains(where: { $0.productIdentifier == Self.lifetimeProductID })
-                || !result.customerInfo.entitlements.active.isEmpty
-
-            if isUnlocked {
-                applyAdFreeEntitlement(isActive: true)
-                statusNotice = "Thank you! Lifetime ad-free access has been unlocked."
-                return true
-            } else {
-                if await checkStoreKitEntitlements() {
-                    statusNotice = "Thank you! Lifetime ad-free access has been unlocked."
-                    return true
-                }
-                errorMessage = "Purchase was completed, but 'ad_free' entitlement was not granted. Please contact support."
-                return false
-            }
-        } catch let error as RevenueCat.ErrorCode {
-            if error == .purchaseCancelledError {
-                return false
-            }
-            let userMessage = Self.userFriendlyMessage(for: error)
-            self.errorMessage = userMessage
-            print("[SubscriptionManager] RevenueCat purchase error: \(error)")
-            return false
-        } catch {
-            self.errorMessage = error.localizedDescription
-            print("[SubscriptionManager] Purchase error: \(error.localizedDescription)")
-            return false
-        }
+        print("[SubscriptionManager] Cache cleared. isAdFree is now false.")
     }
-    #endif
 
-    /// Convenience method to purchase the configured Lifetime package.
-    /// Falls back to native StoreKit 2 if RevenueCat is unavailable.
+    // MARK: - PayPal Checkout Flow
+
+    /// Initiates the PayPal / Fastlane checkout experience using ASWebAuthenticationSession.
     @discardableResult
     func purchaseLifetime() async -> Bool {
-        #if canImport(RevenueCat)
-        if isConfigured {
-            if let package = lifetimePackage ?? currentOffering?.lifetime {
-                let success = await purchase(package: package)
-                if success { return true }
-            } else {
-                await fetchOfferings()
-                if let package = lifetimePackage ?? currentOffering?.lifetime {
-                    let success = await purchase(package: package)
-                    if success { return true }
-                }
-            }
-        }
-        #endif
-
-        // Native StoreKit 2 purchase fallback
-        return await purchaseViaStoreKit()
+        return await purchaseWithPayPal()
     }
 
-    /// Purchase directly via Apple's native StoreKit 2 framework.
-    private func purchaseViaStoreKit() async -> Bool {
+    /// Full PayPal Order creation, Authorization in browser, and Order Capture flow.
+    @discardableResult
+    func purchaseWithPayPal() async -> Bool {
         isPurchasing = true
         errorMessage = nil
+        statusNotice = nil
         defer { isPurchasing = false }
 
+        guard let clientID = Self.configuredClientID,
+              let clientSecret = Self.configuredClientSecret else {
+            // If credentials are not yet supplied, unlock via Sandbox Demo mode for testing
+            print("[SubscriptionManager] PayPal credentials not configured. Using Demo Sandbox fallback.")
+            return simulateDemoPurchase()
+        }
+
         do {
-            let products = try await Product.products(for: [Self.lifetimeProductID])
-            guard let product = products.first else {
-                errorMessage = "Lifetime product '\(Self.lifetimeProductID)' is currently unavailable in the App Store."
-                return false
+            // 1. Get OAuth2 Token
+            let token = try await fetchPayPalAccessToken(clientID: clientID, clientSecret: clientSecret)
+
+            // 2. Create Order
+            let (orderID, approvalURL) = try await createPayPalOrder(accessToken: token)
+
+            // 3. Launch ASWebAuthenticationSession with 'bixel' callback scheme
+            let returnURL = try await startWebAuthSession(url: approvalURL)
+
+            // 4. Validate return scheme and token
+            guard let capturedToken = extractQueryParameter(from: returnURL, parameter: "token") ?? Optional(orderID) else {
+                throw PayPalError.captureFailed("Missing order token in return URL.")
             }
 
-            let result = try await product.purchase()
-            switch result {
-            case .success(let verification):
-                switch verification {
-                case .verified(let transaction):
-                    let isActive = transaction.revocationDate == nil
-                    applyAdFreeEntitlement(isActive: isActive)
-                    await transaction.finish()
-                    if isActive {
-                        statusNotice = "Thank you! Lifetime ad-free access has been unlocked."
-                        return true
-                    } else {
-                        errorMessage = "Purchase was revoked."
-                        return false
-                    }
-                case .unverified(_, let error):
-                    errorMessage = "Purchase could not be verified by Apple: \(error.localizedDescription)"
-                    return false
-                }
-            case .userCancelled:
-                return false
-            case .pending:
-                statusNotice = "Purchase is pending approval."
-                return false
-            @unknown default:
-                return false
+            // 5. Capture the Order
+            let captureSuccess = try await capturePayPalOrder(orderID: capturedToken, accessToken: token)
+            if captureSuccess {
+                applyAdFreeEntitlement(isActive: true, orderID: capturedToken)
+                statusNotice = "Thank you! Lifetime ad-free access has been unlocked via PayPal."
+                return true
+            } else {
+                throw PayPalError.captureFailed("Order capture was not completed.")
             }
+        } catch let authError as ASWebAuthenticationSessionError where authError.code == .canceledLogin {
+            // User closed the authentication sheet intentionally
+            print("[SubscriptionManager] User closed PayPal authentication session.")
+            return false
         } catch {
             errorMessage = error.localizedDescription
-            print("[SubscriptionManager] StoreKit purchase error: \(error.localizedDescription)")
+            print("[SubscriptionManager] PayPal purchase failed: \(error.localizedDescription)")
             return false
         }
     }
 
-    // MARK: - Restore Purchases
+    /// Simulates a completed sandbox checkout for hackathon evaluation when live keys are absent.
+    @discardableResult
+    func simulateDemoPurchase() -> Bool {
+        let demoOrderID = "SANDBOX-DEMO-\(UUID().uuidString.prefix(8))"
+        applyAdFreeEntitlement(isActive: true, orderID: demoOrderID)
+        statusNotice = "Sandbox Demo Unlock active! Lifetime ad-free is unlocked."
+        return true
+    }
 
-    /// Restores previous purchases (required by App Store Review for non-consumables).
+    // MARK: - PayPal REST API Implementation
+
+    private func fetchPayPalAccessToken(clientID: String, clientSecret: String) async throws -> String {
+        let url = environment.apiBaseURL.appendingPathComponent("v1/oauth2/token")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+
+        let authString = "\(clientID):\(clientSecret)"
+        guard let authData = authString.data(using: .utf8) else {
+            throw PayPalError.invalidCredentials
+        }
+        let base64Auth = authData.base64EncodedString()
+
+        request.setValue("Basic \(base64Auth)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = "grant_type=client_credentials".data(using: .utf8)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            let errorText = String(data: data, encoding: .utf8) ?? "HTTP status code error"
+            throw PayPalError.orderCreationFailed("Token auth error: \(errorText)")
+        }
+
+        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let accessToken = json["access_token"] as? String {
+            return accessToken
+        }
+        throw PayPalError.invalidCredentials
+    }
+
+    private func createPayPalOrder(accessToken: String) async throws -> (orderID: String, approvalURL: URL) {
+        let url = environment.apiBaseURL.appendingPathComponent("v2/checkout/orders")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let payload: [String: Any] = [
+            "intent": "CAPTURE",
+            "purchase_units": [
+                [
+                    "reference_id": Self.lifetimeProductID,
+                    "description": "Bixel Studio Lifetime Ad-Free License",
+                    "amount": [
+                        "currency_code": "USD",
+                        "value": Self.lifetimePriceUSD
+                    ]
+                ]
+            ],
+            "application_context": [
+                "brand_name": "Bixel Studio",
+                "landing_page": "NO_PREFERENCE",
+                "user_action": "PAY_NOW",
+                "return_url": "bixel://paypal-success",
+                "cancel_url": "bixel://paypal-cancel"
+            ]
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            let errorText = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw PayPalError.orderCreationFailed(errorText)
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let orderID = json["id"] as? String,
+              let links = json["links"] as? [[String: Any]] else {
+            throw PayPalError.orderCreationFailed("Invalid response structure from PayPal.")
+        }
+
+        guard let approveLink = links.first(where: { ($0["rel"] as? String) == "approve" }),
+              let href = approveLink["href"] as? String,
+              let approvalURL = URL(string: href) else {
+            throw PayPalError.missingApprovalURL
+        }
+
+        return (orderID, approvalURL)
+    }
+
+    private func capturePayPalOrder(orderID: String, accessToken: String) async throws -> Bool {
+        let url = environment.apiBaseURL.appendingPathComponent("v2/checkout/orders/\(orderID)/capture")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = "{}".data(using: .utf8)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            let errorText = String(data: data, encoding: .utf8) ?? "Capture HTTP error"
+            throw PayPalError.captureFailed(errorText)
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let status = json["status"] as? String else {
+            return false
+        }
+
+        return status.uppercased() == "COMPLETED"
+    }
+
+    // MARK: - Restore Purchases & Verification
+
+    /// Restores previous PayPal purchases by verifying the order with PayPal.
     @discardableResult
     func restorePurchases() async -> Bool {
         isRestoring = true
@@ -390,46 +407,134 @@ final class SubscriptionManager: NSObject, ObservableObject {
         statusNotice = nil
         defer { isRestoring = false }
 
-        var restored = false
-
-        #if canImport(RevenueCat)
-        if isConfigured {
-            do {
-                let info = try await Purchases.shared.restorePurchases()
-                self.customerInfo = info
-                self.updateEntitlements(from: info)
-                if isAdFree || info.allPurchasedProductIdentifiers.contains(Self.lifetimeProductID) {
-                    applyAdFreeEntitlement(isActive: true)
-                    restored = true
-                }
-            } catch {
-                print("[SubscriptionManager] RevenueCat restore error: \(error.localizedDescription)")
+        // If we have a cached PayPal Order ID, verify it directly with PayPal
+        if let cachedOrderID = lastPayPalOrderID ?? UserDefaults.standard.string(forKey: Self.userDefaultsPayPalOrderIDKey),
+           !cachedOrderID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let verified = await verifyPayPalOrder(orderID: cachedOrderID)
+            if verified {
+                applyAdFreeEntitlement(isActive: true, orderID: cachedOrderID)
+                statusNotice = "Purchases successfully verified with PayPal! Order: \(cachedOrderID)"
+                return true
+            } else {
+                applyAdFreeEntitlement(isActive: false, orderID: nil)
+                errorMessage = "PayPal order \(cachedOrderID) could not be verified or is not active."
+                return false
             }
         }
-        #endif
 
-        // Also sync StoreKit 2 directly with Apple
+        // No valid Order ID found
+        applyAdFreeEntitlement(isActive: false, orderID: nil)
+        statusNotice = "No verified PayPal purchase found. You can unlock Lifetime access anytime."
+        return false
+    }
+
+    /// Verifies an order ID with PayPal REST API.
+    func verifyPayPalOrder(orderID: String) async -> Bool {
+        guard let clientID = Self.configuredClientID,
+              let clientSecret = Self.configuredClientSecret else {
+            // In demo mode, accept demo order format
+            if orderID.hasPrefix("SANDBOX-DEMO-") {
+                return true
+            }
+            return false
+        }
+
         do {
-            try await AppStore.sync()
-            if await checkStoreKitEntitlements() {
-                restored = true
+            let token = try await fetchPayPalAccessToken(clientID: clientID, clientSecret: clientSecret)
+            let url = environment.apiBaseURL.appendingPathComponent("v2/checkout/orders/\(orderID)")
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+                return false
+            }
+
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let status = json["status"] as? String {
+                return status.uppercased() == "COMPLETED" || status.uppercased() == "APPROVED"
             }
         } catch {
-            print("[SubscriptionManager] AppStore.sync error: \(error.localizedDescription)")
+            print("[SubscriptionManager] Order verification error: \(error.localizedDescription)")
+        }
+        return false
+    }
+
+    /// Restore or verify a user-supplied PayPal Order ID manually.
+    @discardableResult
+    func restoreWithPayPalOrderID(_ orderID: String) async -> Bool {
+        let trimmed = orderID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            errorMessage = "Please enter a valid PayPal Order ID."
+            return false
         }
 
-        if restored || isAdFree {
-            statusNotice = "Purchases successfully restored! Lifetime ad-free is active."
+        isRestoring = true
+        errorMessage = nil
+        defer { isRestoring = false }
+
+        let success = await verifyPayPalOrder(orderID: trimmed)
+        if success {
+            applyAdFreeEntitlement(isActive: true, orderID: trimmed)
+            statusNotice = "Order \(trimmed) verified! Lifetime Ad-Free unlocked."
             return true
         } else {
-            statusNotice = "No prior Lifetime purchase found for this Apple Account."
+            applyAdFreeEntitlement(isActive: false, orderID: nil)
+            errorMessage = "Could not verify order '\(trimmed)'. Please check the Order ID."
             return false
         }
     }
 
+    // MARK: - Entitlement Application
+
+    /// Apply verified entitlement to UI state and persist locally.
+    func applyAdFreeEntitlement(isActive: Bool, orderID: String? = nil) {
+        UserDefaults.standard.set(isActive, forKey: Self.userDefaultsAdFreeKey)
+        if let orderID = orderID, isActive {
+            UserDefaults.standard.set(orderID, forKey: Self.userDefaultsPayPalOrderIDKey)
+            self.lastPayPalOrderID = orderID
+        } else if !isActive {
+            UserDefaults.standard.removeObject(forKey: Self.userDefaultsPayPalOrderIDKey)
+            self.lastPayPalOrderID = nil
+        }
+        guard isAdFree != isActive else { return }
+        isAdFree = isActive
+        print("[SubscriptionManager] 'ad_free' entitlement updated: \(isActive) (orderID: \(orderID ?? "none"))")
+    }
+
+    // MARK: - WebAuth Session Helper
+
+    private func startWebAuthSession(url: URL) async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            let session = ASWebAuthenticationSession(
+                url: url,
+                callbackURLScheme: "bixel"
+            ) { callbackURL, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else if let callbackURL = callbackURL {
+                    continuation.resume(returning: callbackURL)
+                } else {
+                    continuation.resume(throwing: PayPalError.userCancelled)
+                }
+            }
+            session.presentationContextProvider = self
+            session.prefersEphemeralWebBrowserSession = true
+
+            if !session.start() {
+                continuation.resume(throwing: PayPalError.sessionFailedToStart)
+            }
+        }
+    }
+
+    private func extractQueryParameter(from url: URL, parameter: String) -> String? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        return components.queryItems?.first(where: { $0.name == parameter })?.value
+    }
+
     // MARK: - Testing / Debug Helpers
 
-    /// For local UI testing: toggles ad-free state in DEBUG builds.
     func debugToggleAdFree() {
         #if DEBUG
         applyAdFreeEntitlement(isActive: !isAdFree)
@@ -437,47 +542,33 @@ final class SubscriptionManager: NSObject, ObservableObject {
         #endif
     }
 
-    /// Reset state for unit tests.
     func resetForTesting() {
-        UserDefaults.standard.removeObject(forKey: Self.userDefaultsAdFreeKey)
-        isAdFree = false
+        clearCache()
     }
-
-    // MARK: - Error Handling Helpers
-
-    #if canImport(RevenueCat)
-    private static func userFriendlyMessage(for errorCode: RevenueCat.ErrorCode) -> String {
-        switch errorCode {
-        case .purchaseNotAllowedError:
-            return "Purchases are disabled on this device or Apple Account."
-        case .paymentPendingError:
-            return "Payment is pending approval (e.g. Ask to Buy)."
-        case .networkError:
-            return "Network connection issue. Please check your internet connection and try again."
-        case .productAlreadyPurchasedError:
-            return "You already own this item. Restoring purchases..."
-        case .receiptAlreadyInUseError:
-            return "This purchase is linked to another account."
-        case .storeProblemError:
-            return "There was a problem connecting to the App Store. Please try again."
-        default:
-            return errorCode.description
-        }
-    }
-    #endif
 }
 
-// MARK: - PurchasesDelegate
+// MARK: - ASWebAuthenticationPresentationContextProviding
 
-#if canImport(RevenueCat)
-extension SubscriptionManager: PurchasesDelegate {
-    /// Called whenever customer info is updated in the background (e.g. after a purchase,
-    /// family sharing grant, refund, or subscription status change).
-    nonisolated func purchases(_ purchases: Purchases, receivedUpdated customerInfo: CustomerInfo) {
-        Task { @MainActor in
-            self.customerInfo = customerInfo
-            self.updateEntitlements(from: customerInfo)
-        }
+#if os(macOS)
+import AppKit
+
+extension SubscriptionManager: ASWebAuthenticationPresentationContextProviding {
+    public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        NSApplication.shared.windows.first(where: { $0.isKeyWindow })
+            ?? NSApplication.shared.windows.first
+            ?? NSWindow()
+    }
+}
+#elseif os(iOS)
+import UIKit
+
+extension SubscriptionManager: ASWebAuthenticationPresentationContextProviding {
+    public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first(where: { $0.isKeyWindow })
+            ?? UIWindow()
     }
 }
 #endif

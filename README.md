@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="site/assets/images/slime-logo.png" width="96" height="96" alt="Bixel Studio Logo">
+  <img src="site/assets/images/slime-logo.png" width="96" height="96" alt="OpenBixel Logo">
 </p>
 
-# Bixel Studio
+# OpenBixel
 
-![Bixel Studio](assets/bixel-studio-pixel-art.jpg)
+![OpenBixel](assets/bixel-studio-pixel-art.jpg)
 
-**Bixel Studio** is a native macOS 2D game-asset studio designed for pixel artists, game developers, and animators. Built from the ground up for Apple Silicon with a sleek Procreate-style dark interface, Bixel Studio pairs high-performance native Metal rendering with a powerful Rust engine and an integrated AI assistant.
+**OpenBixel** is a native macOS 2D game-asset studio designed for pixel artists, game developers, and animators. Built from the ground up for Apple Silicon with a sleek Procreate-style dark interface, OpenBixel pairs high-performance native Metal rendering with a powerful Rust engine and an integrated AI assistant.
 
 ---
 
@@ -74,5 +74,5 @@ Then press **Cmd + R** in Xcode to run the app.
 
 ## 📖 Documentation & Handbook
 
-Explore the complete [Bixel Studio Handbook](site/handbook/index.html) for detailed guides on the interface, drawing tools, keyboard shortcuts, animation timeline, tilemap designer, and AI assistant skills.
+Explore the complete [OpenBixel Handbook](site/handbook/index.html) for detailed guides on the interface, drawing tools, keyboard shortcuts, animation timeline, tilemap designer, and AI assistant skills.
 

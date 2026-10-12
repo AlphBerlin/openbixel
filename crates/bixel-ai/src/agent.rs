@@ -324,6 +324,20 @@ impl GooseAgent {
                 if let Some(descriptions) = handle.describe_attachments(&images) {
                     prompt_text.push_str(&descriptions);
                     images = vec![];
+                } else if !handle.text_vision_capable {
+                    // Chat model does not accept images and vision description was unavailable:
+                    // avoid passing raw image blocks that cause OpenRouter to reject the turn with 404.
+                    for (i, img) in images.iter().enumerate() {
+                        let name = if img.name.trim().is_empty() {
+                            format!("attachment {}", i + 1)
+                        } else {
+                            img.name.clone()
+                        };
+                        prompt_text.push_str(&format!(
+                            "\n\n[Attached image `{name}` — visual inspection unavailable with current text-only model]"
+                        ));
+                    }
+                    images = vec![];
                 }
             }
         }

@@ -46,19 +46,27 @@ pub struct ImageGen {
 fn image_request_body(
     model: &str,
     prompt: &str,
+    input: Option<&RgbaImage>,
     options: ImageGenerationOptions,
-) -> serde_json::Value {
+) -> Result<serde_json::Value, AiError> {
     let mut body = serde_json::json!({
         "model": model,
         "prompt": prompt,
         "n": 1,
         "response_format": "b64_json",
     });
+    if let Some(image) = input {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(encode_png(image)?);
+        body["input_references"] = serde_json::json!([{
+            "type": "image_url",
+            "image_url": { "url": format!("data:image/png;base64,{b64}") }
+        }]);
+    }
     if options.transparent_background {
         body["background"] = serde_json::json!("transparent");
         body["output_format"] = serde_json::json!("png");
     }
-    body
+    Ok(body)
 }
 
 impl ImageGenerator for ImageGen {
@@ -80,10 +88,14 @@ impl ImageGenerator for ImageGen {
         input: Option<&RgbaImage>,
         options: ImageGenerationOptions,
     ) -> Result<RgbaImage, AiError> {
-        match input {
-            None => self.image_generations(prompt, options),
-            Some(img) => self.image_edits(prompt, img, options),
+        let resp = self.send_generations(prompt, input, options)?;
+        if options.transparent_background && resp.status() == reqwest::StatusCode::BAD_REQUEST {
+            // Models like google/gemini-3-pro-image reject `background`/`output_format` with 400;
+            // fall back to standard output and let `prepare_matte` key out the chroma background.
+            let retry = self.send_generations(prompt, input, ImageGenerationOptions::default())?;
+            return parse_image_response(retry);
         }
+        parse_image_response(resp)
     }
 }
 
@@ -96,64 +108,20 @@ impl ImageGen {
         }
     }
 
-    fn client(&self) -> reqwest::blocking::Client {
-        reqwest::blocking::Client::new()
-    }
-
-    fn auth(&self) -> String {
-        format!("Bearer {}", self.api_key)
-    }
-
-    /// Text → image via `POST {base}/images/generations`.
-    fn image_generations(
+    fn send_generations(
         &self,
         prompt: &str,
+        input: Option<&RgbaImage>,
         options: ImageGenerationOptions,
-    ) -> Result<RgbaImage, AiError> {
+    ) -> Result<reqwest::blocking::Response, AiError> {
         let url = format!("{}/images/generations", self.base_url);
-        let body = image_request_body(&self.image_model, prompt, options);
-        let resp = self
-            .client()
+        let body = image_request_body(&self.image_model, prompt, input, options)?;
+        reqwest::blocking::Client::new()
             .post(&url)
-            .header("Authorization", self.auth())
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&body)
             .send()
-            .map_err(|e| AiError::Provider(e.to_string()))?;
-        parse_image_response(resp)
-    }
-
-    /// Image → image via `POST {base}/images/edits` (multipart).
-    fn image_edits(
-        &self,
-        prompt: &str,
-        image: &RgbaImage,
-        options: ImageGenerationOptions,
-    ) -> Result<RgbaImage, AiError> {
-        let url = format!("{}/images/edits", self.base_url);
-        let png = encode_png(image)?;
-        let part = reqwest::blocking::multipart::Part::bytes(png)
-            .file_name("image.png")
-            .mime_str("image/png")
-            .map_err(|e| AiError::Image(e.to_string()))?;
-        let mut form = reqwest::blocking::multipart::Form::new()
-            .text("model", self.image_model.clone())
-            .text("prompt", prompt.to_string())
-            .text("n", "1")
-            .text("response_format", "b64_json")
-            .part("image", part);
-        if options.transparent_background {
-            form = form
-                .text("background", "transparent")
-                .text("output_format", "png");
-        }
-        let resp = self
-            .client()
-            .post(&url)
-            .header("Authorization", self.auth())
-            .multipart(form)
-            .send()
-            .map_err(|e| AiError::Provider(e.to_string()))?;
-        parse_image_response(resp)
+            .map_err(|e| AiError::Provider(e.to_string()))
     }
 }
 
@@ -201,12 +169,33 @@ mod tests {
         let body = image_request_body(
             "test-model",
             "a red sprite",
+            None,
             ImageGenerationOptions {
                 transparent_background: true,
             },
-        );
+        )
+        .unwrap();
 
         assert_eq!(body["background"], "transparent");
         assert_eq!(body["output_format"], "png");
+        assert!(body.get("input_references").is_none());
+    }
+
+    #[test]
+    fn reference_image_serializes_as_input_references_data_url() {
+        let img = RgbaImage::new(2, 2);
+        let body = image_request_body(
+            "google/gemini-3-pro-image",
+            "predict next frame",
+            Some(&img),
+            ImageGenerationOptions::default(),
+        )
+        .unwrap();
+
+        let url = body["input_references"][0]["image_url"]["url"]
+            .as_str()
+            .expect("input_references url");
+        assert_eq!(body["input_references"][0]["type"], "image_url");
+        assert!(url.starts_with("data:image/png;base64,"));
     }
 }

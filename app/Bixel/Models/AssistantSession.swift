@@ -578,7 +578,7 @@ final class AssistantSession: ObservableObject {
             return nil
         }()
         guard directTool != nil || textReady else {
-            error = "Connect an AI provider in AI settings (OpenRouter key or ChatGPT sign-in). Local skills can run without one."
+            error = "Connect an AI provider in AI settings (such as an OpenRouter API key). Local skills can run without one."
             return
         }
         let imageSkills = selected.filter { $0.origin == .provider && !$0.local }

@@ -81,7 +81,6 @@ struct AIPanel: View {
                     .overlay(Label("Drop files to attach", systemImage: "paperclip")).padding(8).allowsHitTesting(false)
             }
         }
-        .background(AppSettingsOpener(openOnAppear: needsProviderSettings))
         .onAppear {
             if session.commands.isEmpty {
                 session.refreshCommands()
@@ -90,17 +89,6 @@ struct AIPanel: View {
             RemoteClientAIBridge.shared.refreshStatus()
             #endif
         }
-    }
-
-    /// Prompt for provider settings only when there is no usable connection at
-    /// all. On iPad with a Mac connected, the Mac owns the provider, so opening
-    /// the local settings here would be misleading.
-    private var needsProviderSettings: Bool {
-        if session.status.connected { return false }
-        #if os(iOS)
-        if RemoteClientAIBridge.shared.isConnected { return false }
-        #endif
-        return true
     }
 
     private func roleDot(_ role: String) -> Color {

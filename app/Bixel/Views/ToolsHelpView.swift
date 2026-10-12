@@ -377,7 +377,7 @@ enum ToolsDocumentationCatalog {
                 "Generated artwork can be placed directly onto the active canvas or saved to your gallery."
             ],
             proTips: [
-                "Configure your OpenRouter API key or ChatGPT Codex connection in Settings (⌘,).",
+                "Configure your OpenRouter API key or AI provider connection in Settings (⌘,).",
                 "Bixel skills auto-install into your system's isolated skill environment."
             ]
         )

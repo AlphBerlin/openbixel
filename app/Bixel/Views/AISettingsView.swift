@@ -7,6 +7,7 @@ import SwiftUI
 /// `ProviderSettingsPane` is embedded as the Provider pane of the app-universal
 /// `SettingsView`; callers open that window via `AppSettings.open()`.
 struct ProviderSettingsPane: View {
+    @ObservedObject private var storefront = StorefrontManager.shared
     @State private var status = AIService.connectionStatus()
     @State private var provider = "openrouter"
     @State private var apiKey = ""
@@ -50,12 +51,14 @@ struct ProviderSettingsPane: View {
 
     private var providerChooser: some View {
         HStack(spacing: 9) {
-            providerCard(
-                id: "chatgpt_codex",
-                title: "ChatGPT (Codex)",
-                detail: "OAuth · hosted image tool",
-                icon: "sparkles"
-            )
+            if !storefront.isChinaStorefront {
+                providerCard(
+                    id: "chatgpt_codex",
+                    title: "ChatGPT (Codex)",
+                    detail: "OAuth · hosted image tool",
+                    icon: "sparkles"
+                )
+            }
             providerCard(
                 id: "openrouter",
                 title: "OpenRouter",
@@ -288,11 +291,11 @@ struct ProviderSettingsPane: View {
             if current.provider == newProvider {
                 primaryModel = current.models["text"] ?? "google/gemini-2.5-flash"
                 visionModel = current.models["vision"] ?? ""
-                imageModel = current.models["image"] ?? ""
+                imageModel = current.models["image"] ?? "google/gemini-3-pro-image"
             } else {
                 primaryModel = "google/gemini-2.5-flash"
                 visionModel = ""
-                imageModel = ""
+                imageModel = "google/gemini-3-pro-image"
             }
         }
     }
@@ -314,6 +317,7 @@ struct ProviderSettingsPane: View {
     }
 
     private func signIn() {
+        guard !storefront.isChinaStorefront else { return }
         signingIn = true
         message = nil
         DispatchQueue.global(qos: .userInitiated).async {
@@ -337,8 +341,8 @@ struct ProviderSettingsPane: View {
         let selectedProvider = provider
         let key = selectedProvider == "openrouter" ? apiKey : ""
         let text = primaryModel
-        let vision = selectedProvider == "chatgpt_codex" ? text : (visionModel.isEmpty ? text : visionModel)
-        let image = selectedProvider == "chatgpt_codex" ? text : (imageModel.isEmpty ? text : imageModel)
+        let vision = selectedProvider == "chatgpt_codex" ? text : (visionModel.isEmpty ? (selectedOption?.capabilities.contains("vision") == true ? text : "deepseek/deepseek-v4-flash-vision-exp") : visionModel)
+        let image = selectedProvider == "chatgpt_codex" ? text : (imageModel.isEmpty ? "google/gemini-3-pro-image" : imageModel)
         busy = true
         message = nil
         DispatchQueue.global(qos: .userInitiated).async {
@@ -363,6 +367,9 @@ struct ProviderSettingsPane: View {
             if primaryModel.isEmpty { primaryModel = status.models["text"] ?? "" }
             if visionModel.isEmpty { visionModel = status.models["vision"] ?? "" }
             if imageModel.isEmpty { imageModel = status.models["image"] ?? "" }
+        }
+        if storefront.isChinaStorefront && provider == "chatgpt_codex" {
+            provider = "openrouter"
         }
         applyProviderDefaults(provider)
         loadCatalog()

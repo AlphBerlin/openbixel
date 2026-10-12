@@ -32,9 +32,20 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>1.0.3</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.bixel.studio.paypal</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>bixel</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
-	<string>7</string>
+	<string>1</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSBonjourServices</key>
@@ -47,8 +58,12 @@
 	<string>© 2026 Ajith Berlin A</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Bixel connects to your Mac on the local network to sync projects and share the AI assistant.</string>
-	<key>RevenueCatAPIKey</key>
-	<string>$(REVENUECAT_API_KEY)</string>
+	<key>PayPalClientID</key>
+	<string>$(PAYPAL_CLIENT_ID)</string>
+	<key>PayPalClientSecret</key>
+	<string>$(PAYPAL_CLIENT_SECRET)</string>
+	<key>PayPalEnv</key>
+	<string>$(PAYPAL_ENV)</string>
 	<key>UIDeviceFamily</key>
 	<array>
 		<integer>2</integer>

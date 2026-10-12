@@ -30,7 +30,9 @@ struct ContentView: View {
     @State private var showCustomerCenter = false
     @State private var showHelpDocument = false
     @State private var showImportProjectPicker = false
+    #if os(iOS)
     @State private var showSettings = false
+    #endif
     @State private var loadingProject: StudioProject? = nil
     @State private var showLoadingAd = false
     @State private var pendingPostAction: (() -> Void)? = nil
@@ -112,9 +114,14 @@ struct ContentView: View {
                 .onReceive(NotificationCenter.default.publisher(for: .studioShowHelp)) { _ in showHelpDocument = true }
                 .onReceive(NotificationCenter.default.publisher(for: .studioExportProject)) { _ in projects.exportProject() }
                 .onReceive(NotificationCenter.default.publisher(for: .studioImportProject)) { _ in showImportProjectPicker = true }
+                #if os(iOS)
                 .onReceive(NotificationCenter.default.publisher(for: AppSettings.openRequest)) { _ in showSettings = true }
+                #endif
                 .onReceive(NotificationCenter.default.publisher(for: .studioRestorePurchases)) { _ in
                     Task { await subscriptionManager.restorePurchases() }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .studioClearPurchaseCache)) { _ in
+                    subscriptionManager.clearCache()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .studioDismissPopovers)) { _ in
                     if showLayers || showColor {
@@ -199,7 +206,9 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.2), value: showColor)
         .animation(.easeInOut(duration: 0.2), value: showAssets)
         .animation(.easeInOut(duration: 0.22), value: currentScreen)
+        #if os(iOS)
         .sheet(isPresented: $showSettings) { SettingsView() }
+        #endif
         .sheet(isPresented: $showProjects) {
             ProjectPicker(store: projects, onSelectProject: { project in
                 handleOpenProject(project)
@@ -811,6 +820,7 @@ extension Notification.Name {
     static let studioUnlockLifetime = Notification.Name("studio.unlockLifetime")
     static let studioCustomerCenter = Notification.Name("studio.customerCenter")
     static let studioRestorePurchases = Notification.Name("studio.restorePurchases")
+    static let studioClearPurchaseCache = Notification.Name("studio.clearPurchaseCache")
 }
 
 // MARK: - Anchor Button Frames
