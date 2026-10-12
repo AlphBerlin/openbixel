@@ -2,6 +2,12 @@ import Foundation
 import CoreGraphics
 import ImageIO
 import Combine
+import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
 struct StudioProject: Codable, Identifiable {
     let id: String
@@ -293,6 +299,140 @@ final class ProjectStore: ObservableObject {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    /// Export a project (all documents, maps, frames, layers, assets, and AI state) as a compressed `.bix` archive.
+    func exportProject(_ project: StudioProject? = nil) {
+        guard !assistant.busy, let target = project ?? current else { return }
+        if current?.id == target.id {
+            do { try flush() } catch { self.error = error.localizedDescription; return }
+        }
+        let stem = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let filename = "\(stem.isEmpty ? "project" : stem).bix"
+
+        #if os(macOS)
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.bixProject]
+        panel.nameFieldStringValue = filename
+        panel.begin { [weak self] response in
+            guard response == .OK, let rawURL = panel.url, let self else { return }
+            let url = rawURL.pathExtension.lowercased() == "bix" ? rawURL : rawURL.appendingPathExtension("bix")
+            do {
+                _ = try ProjectStorage.request(base: self.root, ["op": "export_bix", "id": target.id, "dest": url.path])
+            } catch {
+                DispatchQueue.main.async { self.error = error.localizedDescription }
+            }
+        }
+        #elseif os(iOS)
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+        do {
+            _ = try ProjectStorage.request(base: root, ["op": "export_bix", "id": target.id, "dest": tempURL.path])
+            guard let windowScene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene ?? UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController else { return }
+            var presenter = rootVC
+            while let presented = presenter.presentedViewController { presenter = presented }
+            let activityVC = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
+            if let popover = activityVC.popoverPresentationController {
+                popover.sourceView = presenter.view
+                popover.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0, height: 0)
+                popover.permittedArrowDirections = []
+            }
+            presenter.present(activityVC, animated: true)
+        } catch {
+            self.error = error.localizedDescription
+        }
+        #endif
+    }
+
+    /// Import a `.bix` (or `.zip`) compressed project archive, restoring all documents, maps, and assets.
+    @discardableResult
+    func importProjectArchive(from url: URL, openAfterImport: Bool = true) -> StudioProject? {
+        guard !assistant.busy else { return nil }
+        let hasSecurityScope = url.startAccessingSecurityScopedResource()
+        defer {
+            if hasSecurityScope { url.stopAccessingSecurityScopedResource() }
+        }
+        let id = UUID().uuidString
+        let fallbackName = url.deletingPathExtension().lastPathComponent
+        do {
+            guard let value = try ProjectStorage.request(base: root, [
+                "op": "import_bix",
+                "id": id,
+                "src": url.path,
+                "name": fallbackName
+            ]) else {
+                throw StorageError.message("Could not import the .bix project archive.")
+            }
+            let project = try decode(StudioProject.self, value)
+            let base = root.appendingPathComponent(project.id)
+
+            // If the archive was a raw zip of images/maps without workspace.json, synthesize a catalog from all files.
+            let hasWorkspace = (try? ProjectStorage.read(base: base, path: "workspace.json")) != nil
+            let hasLegacyDoc = (try? ProjectStorage.read(base: base, path: "document.json")) != nil
+            if !hasWorkspace && !hasLegacyDoc {
+                try synthesizeCatalogFromExtractedFiles(base: base, defaultName: project.name)
+            }
+
+            if let pngData = try? ProjectStorage.readBytes(base: base, path: "thumbnail.png"),
+               let src = CGImageSourceCreateWithData(pngData as CFData, nil as CFDictionary?),
+               let cg = CGImageSourceCreateImageAtIndex(src, 0, nil as CFDictionary?) {
+                projectThumbnails[project.id] = cg
+            } else if let (pngData, cg) = Self.generateThumbnailFromDisk(base: base) {
+                try? ProjectStorage.write(base: base, path: "thumbnail.png", data: pngData)
+                projectThumbnails[project.id] = cg
+            }
+
+            refresh()
+            if openAfterImport {
+                try open(project)
+            }
+            return project
+        } catch {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent(id))
+            self.error = error.localizedDescription
+            return nil
+        }
+    }
+
+    private func synthesizeCatalogFromExtractedFiles(base: URL, defaultName: String) throws {
+        let allFiles = (try? decode([ProjectAssetFile].self, ProjectStorage.request(base: base, ["op": "files", "path": "."]) ?? [])) ?? []
+        var catalog = WorkspaceCatalog()
+        for file in allFiles {
+            let ext = URL(fileURLWithPath: file.path).pathExtension.lowercased()
+            let docName = URL(fileURLWithPath: file.name).deletingPathExtension().lastPathComponent
+            if ext == "tmj", let data = try? ProjectStorage.readBytes(base: base, path: file.path) {
+                let fileURL = base.appendingPathComponent(file.path)
+                if let prepared = try? TileMapImport.prepareMapJSON(data, sourceDirectory: fileURL.deletingLastPathComponent(), persistImage: { assetData, name in
+                    try self.persistImageAsset(data: assetData, name: name, base: base)
+                }), let model = try? TileMapModel(json: prepared) {
+                    let item = WorkspaceDocument(name: docName, mode: .map,
+                                                 width: model.map.columns, height: model.map.rows,
+                                                 cellWidth: model.map.cellWidth, cellHeight: model.map.cellHeight,
+                                                 infinite: model.map.isInfinite, orientation: model.map.orientation.tiled)
+                    try model.map.save(base: base, path: item.path)
+                    catalog.documents.append(item)
+                }
+            } else if file.isImage, file.path != "thumbnail.png",
+                      let data = try? ProjectStorage.readBytes(base: base, path: file.path),
+                      let image = AIService.pngToRGBA(data), image.width > 0, image.height > 0,
+                      image.width <= 4096, image.height <= 4096 {
+                let doc = Document(width: image.width, height: image.height)
+                doc.loadImageData(image.rgba, width: image.width, height: image.height, layer: 0, frame: 0)
+                let item = WorkspaceDocument(name: docName, mode: .normal, width: image.width, height: image.height, sourcePath: file.path)
+                try doc.save(base: base, path: item.path)
+                catalog.documents.append(item)
+            }
+        }
+        if catalog.documents.isEmpty {
+            let item = WorkspaceDocument(name: defaultName, mode: .normal, width: 32, height: 32)
+            let doc = Document(width: 32, height: 32)
+            try doc.save(base: base, path: item.path)
+            catalog.documents = [item]
+        }
+        catalog.activeDocumentID = catalog.documents.first?.id
+        try writeCatalog(catalog, base: base)
     }
 
     func metadata(for project: StudioProject) -> (mode: WorkspaceMode, sizeText: String, timeText: String) {

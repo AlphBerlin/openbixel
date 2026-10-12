@@ -92,6 +92,19 @@ struct HomePageView: View {
             Divider()
                 .overlay(StudioTheme.homeCardBorder)
 
+            // SPONSOR BANNER (Visible on Home dashboard for free-tier users)
+            if !subscriptionManager.isAdFree {
+                AdBannerView {
+                    onPresentPaywall?()
+                }
+                .padding(.horizontal, 36)
+                .padding(.vertical, 8)
+                .background(StudioTheme.homeDark)
+
+                Divider()
+                    .overlay(StudioTheme.homeCardBorder)
+            }
+
             // SCROLLABLE DASHBOARD
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 28) {
@@ -155,7 +168,7 @@ struct HomePageView: View {
         }
         .fileImporter(
             isPresented: $showImportFilePicker,
-            allowedContentTypes: [.image, .json, UTType(filenameExtension: "tmj") ?? .json],
+            allowedContentTypes: [.bixProject, .zip, .archive, .image, .json, UTType(filenameExtension: "tmj") ?? .json, .item],
             allowsMultipleSelection: true
         ) { result in
             switch result {
@@ -385,7 +398,7 @@ struct HomePageView: View {
                         }
                     }
 
-                    heroQuickButton(title: "Import", subtitle: "Images or files", icon: "square.and.arrow.down") {
+                    heroQuickButton(title: "Import", subtitle: "Projects (.bix) or files", icon: "square.and.arrow.down") {
                         importFile()
                     }
                 }
@@ -1047,6 +1060,7 @@ struct HomePageView: View {
                                 renamingProject = project
                             },
                             onDuplicate: { store.duplicateProject(project) },
+                            onExport: { store.exportProject(project) },
                             onDelete: { store.deleteProject(project) }
                         )
                     }
@@ -1161,48 +1175,60 @@ struct HomePageView: View {
             scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() }
         }
 
-        if let tiledMapURL = urls.first(where: { $0.pathExtension.lowercased() == "tmj" }) {
+        var lastImportedProject: StudioProject?
+
+        let archiveURLs = urls.filter { ["bix", "zip"].contains($0.pathExtension.lowercased()) }
+        for archiveURL in archiveURLs {
+            if let project = store.importProjectArchive(from: archiveURL) {
+                lastImportedProject = project
+            }
+        }
+
+        let tiledMapURLs = urls.filter { $0.pathExtension.lowercased() == "tmj" }
+        for tiledMapURL in tiledMapURLs {
             if let project = store.importTiledMap(from: tiledMapURL, createProject: true) {
-                onOpenProject(project)
+                lastImportedProject = project
             }
-            return
         }
 
-        let manifestURL = urls.first { $0.pathExtension.lowercased() == "json" }
-        let selectedImageURL = urls.first { imageExtensions.contains($0.pathExtension.lowercased()) }
-        let name = (manifestURL ?? selectedImageURL ?? urls[0])
-            .deletingPathExtension().lastPathComponent
+        let remainingURLs = urls.filter { !["bix", "zip", "tmj"].contains($0.pathExtension.lowercased()) }
+        if !remainingURLs.isEmpty {
+            let manifestURLs = remainingURLs.filter { $0.pathExtension.lowercased() == "json" }
+            let selectedImageURLs = remainingURLs.filter { imageExtensions.contains($0.pathExtension.lowercased()) }
+            var consumedImageURLs = Set<URL>()
 
-        var imageURL = selectedImageURL
-        var manifest: String?
-        if let manifestURL {
-            if imageURL == nil {
-                guard let sibling = SheetImport.siblingImage(for: manifestURL) else {
+            for manifestURL in manifestURLs {
+                let stem = manifestURL.deletingPathExtension().lastPathComponent
+                let matchingImage = selectedImageURLs.first(where: { $0.deletingPathExtension().lastPathComponent == stem })
+                    ?? (manifestURLs.count == 1 ? selectedImageURLs.first : nil)
+                    ?? SheetImport.siblingImage(for: manifestURL)
+                guard let imageURL = matchingImage, let data = try? Data(contentsOf: imageURL) else {
                     store.error = "Select both the PNG spritesheet and its JSON manifest."
-                    return
+                    continue
                 }
-                imageURL = sibling
+                consumedImageURLs.insert(imageURL)
+                let manifest = (try? Data(contentsOf: manifestURL)).flatMap(SheetImport.manifest(fromJSON:))
+                if let project = manifest.map({ store.importSheetProject(png: data, manifest: $0, name: stem) }) ?? store.importImageProject(png: data, name: stem) {
+                    lastImportedProject = project
+                }
             }
-            manifest = (try? Data(contentsOf: manifestURL)).flatMap(SheetImport.manifest(fromJSON:))
-        } else if let selectedImageURL {
-            manifest = SheetImport.sidecarManifest(for: selectedImageURL)
-        } else {
-            store.error = "Choose an image or a JSON manifest next to its image."
-            return
+
+            for imageURL in selectedImageURLs where !consumedImageURLs.contains(imageURL) {
+                guard let data = try? Data(contentsOf: imageURL) else {
+                    store.error = "Could not read that file."
+                    continue
+                }
+                let name = imageURL.deletingPathExtension().lastPathComponent
+                let manifest = SheetImport.sidecarManifest(for: imageURL)
+                if let project = manifest.map({ store.importSheetProject(png: data, manifest: $0, name: name) }) ?? store.importImageProject(png: data, name: name) {
+                    lastImportedProject = project
+                }
+            }
         }
 
-        guard let imageURL, let data = try? Data(contentsOf: imageURL) else {
-            if manifestURL != nil {
-                store.error = "Could not read the spritesheet. Select both the image and JSON manifest together."
-            } else {
-                store.error = "Could not read that file."
-            }
-            return
+        if let lastImportedProject {
+            onOpenProject(lastImportedProject)
         }
-
-        let project = manifest.map { store.importSheetProject(png: data, manifest: $0, name: name) }
-            ?? store.importImageProject(png: data, name: name)
-        if let project { onOpenProject(project) }
     }
 }
 
@@ -1215,6 +1241,7 @@ struct RecentProjectCard: View {
     let onOpen: () -> Void
     let onRename: () -> Void
     let onDuplicate: () -> Void
+    var onExport: (() -> Void)? = nil
     let onDelete: () -> Void
 
     @State private var isHovered = false
@@ -1245,6 +1272,9 @@ struct RecentProjectCard: View {
                             Button("Open", action: onOpen)
                             Button("Rename…", action: onRename)
                             Button("Duplicate", action: onDuplicate)
+                            if let onExport {
+                                Button("Export Project (.bix)…", action: onExport)
+                            }
                             Divider()
                             Button("Delete", role: .destructive, action: onDelete)
                         } label: {

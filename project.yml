@@ -88,11 +88,27 @@ targets:
         NSLocalNetworkUsageDescription: "Bixel can pair with your iPad on the local network to sync projects and share the AI assistant."
         NSBonjourServices:
           - "_bixel-remote._tcp"
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Bixel Project Archive
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.bixel.studio.project
         UTExportedTypeDeclarations:
           - UTTypeIdentifier: com.bixel.studio.color-drop
             UTTypeDescription: Bixel Color
             UTTypeConformsTo:
               - public.data
+          - UTTypeIdentifier: com.bixel.studio.project
+            UTTypeDescription: Bixel Project Archive
+            UTTypeConformsTo:
+              - public.zip-archive
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - bix
+              public.mime-type:
+                - application/x-bixel-project
     preBuildScripts:
       - name: Build Rust engine
         script: |
@@ -151,11 +167,27 @@ targets:
         NSCameraUsageDescription: "Bixel uses the camera to scan the pairing QR code shown on your Mac."
         UIDeviceFamily:
           - 2
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Bixel Project Archive
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.bixel.studio.project
         UTExportedTypeDeclarations:
           - UTTypeIdentifier: com.bixel.studio.color-drop
             UTTypeDescription: Bixel Color
             UTTypeConformsTo:
               - public.data
+          - UTTypeIdentifier: com.bixel.studio.project
+            UTTypeDescription: Bixel Project Archive
+            UTTypeConformsTo:
+              - public.zip-archive
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - bix
+              public.mime-type:
+                - application/x-bixel-project
     preBuildScripts:
       - name: Build Rust engine
         script: |

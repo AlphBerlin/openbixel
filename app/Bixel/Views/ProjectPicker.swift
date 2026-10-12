@@ -114,6 +114,11 @@ struct ProjectPicker: View {
             HStack {
                 TextField("Project name", text: $name).textFieldStyle(.roundedBorder).onSubmit(create)
                 Button("Create project", action: create).buttonStyle(.borderedProminent).disabled(!canCreate)
+                Button("Import .bix…") {
+                    dismiss()
+                    NotificationCenter.default.post(name: .studioImportProject, object: nil)
+                }
+                .disabled(assistant.busy)
             }
         }
     }
@@ -141,6 +146,12 @@ struct ProjectPicker: View {
                                     store.select(project)
                                     if store.current?.id == project.id { dismiss() }
                                 }
+                            }
+                            .contextMenu {
+                                Button("Export Project (.bix)…") { store.exportProject(project) }
+                                Button("Duplicate") { store.duplicateProject(project) }
+                                Divider()
+                                Button("Delete", role: .destructive) { store.deleteProject(project) }
                             }
                             .disabled(assistant.busy)
                         }

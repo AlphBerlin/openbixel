@@ -18,6 +18,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "1"
 regex = "1"
 blake3 = "1"
+flate2 = "1"
+crc32fast = "1"
 
 [profile.release]
 lto = "fat"

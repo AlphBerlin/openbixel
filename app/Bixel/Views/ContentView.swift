@@ -29,6 +29,7 @@ struct ContentView: View {
     @State private var showPaywall = false
     @State private var showCustomerCenter = false
     @State private var showHelpDocument = false
+    @State private var showImportProjectPicker = false
     @State private var showSettings = false
     @State private var loadingProject: StudioProject? = nil
     @State private var showLoadingAd = false
@@ -109,6 +110,8 @@ struct ContentView: View {
                 .onReceive(NotificationCenter.default.publisher(for: .studioUnlockLifetime)) { _ in showPaywall = true }
                 .onReceive(NotificationCenter.default.publisher(for: .studioCustomerCenter)) { _ in showCustomerCenter = true }
                 .onReceive(NotificationCenter.default.publisher(for: .studioShowHelp)) { _ in showHelpDocument = true }
+                .onReceive(NotificationCenter.default.publisher(for: .studioExportProject)) { _ in projects.exportProject() }
+                .onReceive(NotificationCenter.default.publisher(for: .studioImportProject)) { _ in showImportProjectPicker = true }
                 .onReceive(NotificationCenter.default.publisher(for: AppSettings.openRequest)) { _ in showSettings = true }
                 .onReceive(NotificationCenter.default.publisher(for: .studioRestorePurchases)) { _ in
                     Task { await subscriptionManager.restorePurchases() }
@@ -206,6 +209,33 @@ struct ContentView: View {
         .sheet(isPresented: $showPaywall) { PaywallContainerView() }
         .sheet(isPresented: $showCustomerCenter) { CustomerCenterContainerView() }
         .sheet(isPresented: $showHelpDocument) { ToolsHelpView() }
+        .fileImporter(
+            isPresented: $showImportProjectPicker,
+            allowedContentTypes: [.bixProject, .zip, .archive, .item],
+            allowsMultipleSelection: true
+        ) { result in
+            if case .success(let urls) = result {
+                var lastProject: StudioProject?
+                for url in urls {
+                    if let imported = projects.importProjectArchive(from: url) {
+                        lastProject = imported
+                    }
+                }
+                if let lastProject {
+                    handleOpenProject(lastProject)
+                }
+            } else if case .failure(let error) = result {
+                projects.error = "Could not import project: \(error.localizedDescription)"
+            }
+        }
+        .onOpenURL { url in
+            let ext = url.pathExtension.lowercased()
+            if ext == "bix" || ext == "zip" {
+                if let imported = projects.importProjectArchive(from: url) {
+                    handleOpenProject(imported)
+                }
+            }
+        }
         .sheet(item: $generatedImageDraft, onDismiss: handleGeneratedImageReviewDismissed) { draft in
             AIGeneratedImageReviewView(
                 draft: draft,
@@ -776,6 +806,8 @@ extension Notification.Name {
     static let studioExportTiledJSON = Notification.Name("studio.exportTiledJSON")
     static let studioExportCSV = Notification.Name("studio.exportCSV")
     static let studioExportMapPNG = Notification.Name("studio.exportMapPNG")
+    static let studioExportProject = Notification.Name("studio.exportProject")
+    static let studioImportProject = Notification.Name("studio.importProject")
     static let studioUnlockLifetime = Notification.Name("studio.unlockLifetime")
     static let studioCustomerCenter = Notification.Name("studio.customerCenter")
     static let studioRestorePurchases = Notification.Name("studio.restorePurchases")

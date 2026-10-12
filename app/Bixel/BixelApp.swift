@@ -53,6 +53,11 @@ struct BixelApp: App {
                 Button("Export Tiled JSON…") { post(.studioExportTiledJSON) }
                 Button("Export Map CSV…") { post(.studioExportCSV) }
                 Button("Export Map PNG…") { post(.studioExportMapPNG) }
+                Divider()
+                Button("Import Project (.bix)…") { post(.studioImportProject) }
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+                Button("Export Project (.bix)…") { post(.studioExportProject) }
+                    .keyboardShortcut("e", modifiers: [.command, .shift])
             }
             CommandMenu("Frame") {
                 Button("Add Frame") { post(.studioAddFrame) }

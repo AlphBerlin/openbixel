@@ -122,3 +122,12 @@ enum PlatformPasteboard {
         #endif
     }
 }
+
+extension UTType {
+    /// Bixel compressed project archive (`.bix`).
+    static var bixProject: UTType {
+        UTType(filenameExtension: "bix", conformingTo: .zip)
+            ?? UTType("com.bixel.studio.project")
+            ?? .zip
+    }
+}

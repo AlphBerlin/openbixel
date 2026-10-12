@@ -830,6 +830,17 @@ struct ActionsPopover: View {
                     .padding(.vertical, 4)
                     .help("Import a Tiled JSON map into this project")
                 }
+
+                Divider().overlay(StudioTheme.hairline)
+
+                Button {
+                    post(.studioExportProject)
+                } label: {
+                    Label("Export Project (.bix)…", systemImage: "archivebox")
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 4)
+                .help("Export the entire project as a compressed .bix archive")
             }
         } else {
             VStack(alignment: .leading, spacing: 8) {
@@ -886,6 +897,21 @@ struct ActionsPopover: View {
                 .buttonStyle(.plain)
                 .padding(.vertical, 4)
                 .help("Export all frames as an animated sprite sheet")
+
+                Divider().overlay(StudioTheme.hairline)
+
+                Text("Share Project")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(StudioTheme.textSecondary)
+
+                Button {
+                    post(.studioExportProject)
+                } label: {
+                    Label("Project Archive (.bix)…", systemImage: "archivebox")
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 4)
+                .help("Export the entire project as a compressed .bix archive")
             }
         }
     }
@@ -901,6 +927,22 @@ struct ActionsPopover: View {
                 .buttonStyle(.plain)
                 .help("Create a new document")
             }
+
+            Button {
+                post(.studioExportProject)
+            } label: {
+                Label("Export Project (.bix)…", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(.plain)
+            .help("Export this project as a compressed .bix archive")
+
+            Button {
+                post(.studioImportProject)
+            } label: {
+                Label("Import Project (.bix)…", systemImage: "square.and.arrow.down")
+            }
+            .buttonStyle(.plain)
+            .help("Import a .bix project archive")
 
             Button {
                 onShowProjects()
