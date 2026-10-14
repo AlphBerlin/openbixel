@@ -1,0 +1,76 @@
+name: Build & Test
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'site/**'
+      - 'docs/**'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - 'site/**'
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-rust:
+    name: Test Rust Core
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Cargo Tests (bixel-core)
+        run: cargo test -p bixel-core
+
+  build-macos:
+    name: Build macOS App
+    runs-on: macos-14
+    needs: test-rust
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install build tools (xcodegen, cbindgen)
+        run: brew install xcodegen cbindgen
+
+      - name: Generate Xcode Project
+        run: xcodegen generate
+
+      - name: Build Rust Core Static Library
+        run: ./scripts/build-rust.sh
+
+      - name: Build macOS App (Debug)
+        run: |
+          xcodebuild -project Bixel.xcodeproj \
+            -scheme Bixel \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build

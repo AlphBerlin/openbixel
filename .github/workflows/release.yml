@@ -77,10 +77,6 @@ jobs:
 
       - name: Build macOS App (Release)
         run: |
-          if [ -z "${REVENUECAT_API_KEY:-}" ]; then
-            echo "REVENUECAT_API_KEY GitHub secret is required for production releases" >&2
-            exit 1
-          fi
           xcodebuild -project Bixel.xcodeproj \
             -scheme Bixel \
             -configuration Release \
@@ -91,10 +87,14 @@ jobs:
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            REVENUECAT_API_KEY="$REVENUECAT_API_KEY" \
+            PAYPAL_CLIENT_ID="${PAYPAL_CLIENT_ID:-}" \
+            PAYPAL_CLIENT_SECRET="${PAYPAL_CLIENT_SECRET:-}" \
+            PAYPAL_ENV="${PAYPAL_ENV:-sandbox}" \
             build
         env:
-          REVENUECAT_API_KEY: ${{ secrets.REVENUECAT_API_KEY }}
+          PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
+          PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+          PAYPAL_ENV: ${{ vars.PAYPAL_ENV || 'sandbox' }}
 
       - name: Package DMG
         run: |
