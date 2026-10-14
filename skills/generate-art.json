@@ -1,0 +1,20 @@
+{
+  "id": "generate_art",
+  "name": "Generate art",
+  "description": "Generate a piece of pixel art from a text prompt using the configured image model.",
+  "category": "generation",
+  "model": "image",
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "style": { "type": "string", "description": "Art style hint" },
+      "width": { "type": "integer", "description": "Target width in pixels" },
+      "height": { "type": "integer", "description": "Target height in pixels" },
+      "transparent": {
+        "type": "boolean",
+        "default": true,
+        "description": "Request a real alpha=0 background for sprites/assets; use false for opaque scenes or terrain."
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Required for the Mac App Store. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+
+	<!-- OpenRouter / App Store Connect network access. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+
+	<!-- Optional Mac host for paired-iPad connections and the Codex OAuth callback. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+
+	<!-- Projects, sources and exports chosen through NSOpenPanel/NSSavePanel. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+</dict>
+</plist>

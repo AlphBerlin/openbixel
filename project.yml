@@ -1,0 +1,212 @@
+# XcodeGen project definition for the native Bixel Studio (macOS-first).
+#
+# Generate with:  xcodegen generate
+# Then open Bixel.xcodeproj and run.
+#
+# The Rust engine is built by scripts/build-rust.sh in a pre-build phase, which
+# stages target/release/libbixel.a and generated/bixel.h; the app links the
+# static library and imports the header through the bridging header.
+
+name: Bixel
+
+options:
+  bundleIdPrefix: com.bixel
+  deploymentTarget:
+    macOS: "13.0"
+    iOS: "17.0"
+  createIntermediateGroups: true
+  xcodeVersion: "15.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    ENABLE_HARDENED_RUNTIME: true
+    DEAD_CODE_STRIPPING: false
+
+targets:
+  Bixel:
+    type: application
+    platform: macOS
+    sources:
+      - path: app/Bixel
+        excludes:
+          - "Info.plist"
+          - "Info-iOS.plist"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bixel.studio
+        PRODUCT_NAME: Bixel
+        # The staged Rust archive is currently built for Apple Silicon. Keep
+        # App Store archives from requesting an x86_64 slice that cannot link.
+        ARCHS: arm64
+        SWIFT_OBJC_BRIDGING_HEADER: app/Bixel/Support/Bixel-Bridging-Header.h
+        HEADER_SEARCH_PATHS: "$(SRCROOT)/generated"
+        LIBRARY_SEARCH_PATHS: "$(SRCROOT)/generated"
+        # -lbixel links the Rust engine (embedded goose agent). rustls-platform-verifier
+        # needs Security/CoreFoundation; reqwest's system-proxy support needs
+        # SystemConfiguration.
+        OTHER_LDFLAGS: "-lbixel -framework Security -framework CoreFoundation -framework SystemConfiguration"
+        ENABLE_BITCODE: NO
+        # The Rust build phase needs to read/write target/, generated/ and the
+        # cargo/rustup homes, which the user-script sandbox blocks.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Debug:
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGNING_REQUIRED: NO
+        # App Store archives require the sandbox. Debug/dev builds stay
+        # unsandboxed so the Rust build phase and local project access work.
+        Release:
+          CODE_SIGNING_REQUIRED: YES
+          CODE_SIGN_ENTITLEMENTS: app/Bixel/Bixel-AppStore.entitlements
+    info:
+      path: app/Bixel/Info.plist
+      properties:
+        CFBundleName: Bixel
+        CFBundleDisplayName: Bixel Studio
+        CFBundleShortVersionString: "1.0.3"
+        CFBundleVersion: "1"
+        LSMinimumSystemVersion: "13.0"
+        LSApplicationCategoryType: public.app-category.graphics-design
+        NSHighResolutionCapable: true
+        ITSAppUsesNonExemptEncryption: false
+        NSHumanReadableCopyright: "© 2026 Ajith Berlin A"
+        PayPalClientID: "$(PAYPAL_CLIENT_ID)"
+        PayPalClientSecret: "$(PAYPAL_CLIENT_SECRET)"
+        PayPalEnv: "$(PAYPAL_ENV)"
+        CFBundleURLTypes:
+          - CFBundleURLName: com.bixel.studio.paypal
+            CFBundleURLSchemes:
+              - bixel
+        NSPrincipalClass: NSApplication
+        NSLocalNetworkUsageDescription: "Bixel can pair with your iPad on the local network to sync projects and share the AI assistant."
+        NSBonjourServices:
+          - "_bixel-remote._tcp"
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Bixel Project Archive
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.bixel.studio.project
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.bixel.studio.color-drop
+            UTTypeDescription: Bixel Color
+            UTTypeConformsTo:
+              - public.data
+          - UTTypeIdentifier: com.bixel.studio.project
+            UTTypeDescription: Bixel Project Archive
+            UTTypeConformsTo:
+              - public.zip-archive
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - bix
+              public.mime-type:
+                - application/x-bixel-project
+    preBuildScripts:
+      - name: Build Rust engine
+        script: |
+          set -euo pipefail
+          "$SRCROOT/scripts/configure-paypal-info.sh"
+          "$SRCROOT/scripts/build-rust.sh"
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
+
+  Bixel-iOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: app/Bixel
+        excludes:
+          - "Info.plist"
+          - "Info-iOS.plist"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bixel.studio
+        PRODUCT_NAME: Bixel
+        ARCHS: arm64
+        TARGETED_DEVICE_FAMILY: "2"
+        SWIFT_OBJC_BRIDGING_HEADER: app/Bixel/Support/Bixel-Bridging-Header.h
+        HEADER_SEARCH_PATHS: "$(SRCROOT)/generated"
+        LIBRARY_SEARCH_PATHS: "$(SRCROOT)/generated"
+        OTHER_LDFLAGS: "-lbixel -framework Security -framework CoreFoundation -framework SystemConfiguration"
+        ENABLE_BITCODE: NO
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        DEVELOPMENT_TEAM: 4NDFXD8NQ6
+      configs:
+        Debug:
+          CODE_SIGN_STYLE: Automatic
+        Release:
+          CODE_SIGN_STYLE: Automatic
+    info:
+      path: app/Bixel/Info-iOS.plist
+      properties:
+        CFBundleName: Bixel
+        CFBundleDisplayName: Bixel Studio
+        CFBundleShortVersionString: "1.0.3"
+        CFBundleVersion: "1"
+        ITSAppUsesNonExemptEncryption: false
+        NSHumanReadableCopyright: "© 2026 Ajith Berlin A"
+        PayPalClientID: "$(PAYPAL_CLIENT_ID)"
+        PayPalClientSecret: "$(PAYPAL_CLIENT_SECRET)"
+        PayPalEnv: "$(PAYPAL_ENV)"
+        CFBundleURLTypes:
+          - CFBundleURLName: com.bixel.studio.paypal
+            CFBundleURLSchemes:
+              - bixel
+        NSLocalNetworkUsageDescription: "Bixel connects to your Mac on the local network to sync projects and share the AI assistant."
+        NSBonjourServices:
+          - "_bixel-remote._tcp"
+        NSCameraUsageDescription: "Bixel uses the camera to scan the pairing QR code shown on your Mac."
+        UIDeviceFamily:
+          - 2
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Bixel Project Archive
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.bixel.studio.project
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.bixel.studio.color-drop
+            UTTypeDescription: Bixel Color
+            UTTypeConformsTo:
+              - public.data
+          - UTTypeIdentifier: com.bixel.studio.project
+            UTTypeDescription: Bixel Project Archive
+            UTTypeConformsTo:
+              - public.zip-archive
+              - public.data
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - bix
+              public.mime-type:
+                - application/x-bixel-project
+    preBuildScripts:
+      - name: Build Rust engine
+        script: |
+          set -euo pipefail
+          BIXEL_INFO_PLIST_PATH="$SRCROOT/app/Bixel/Info-iOS.plist" "$SRCROOT/scripts/configure-paypal-info.sh"
+          "$SRCROOT/scripts/build-rust.sh"
+        basedOnDependencyAnalysis: false
+        showEnvVars: false
+
+# Run the app with the project root as its working directory so the AI engine
+# can find `.env` (and so relative asset paths resolve during development).
+schemes:
+  Bixel:
+    build:
+      targets:
+        Bixel: all
+    run:
+      config: Debug
+      customWorkingDirectory: $(SRCROOT)
+  Bixel-iOS:
+    build:
+      targets:
+        Bixel-iOS: all
+    run:
+      config: Debug

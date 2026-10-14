@@ -1,0 +1,21 @@
+{
+  "id": "image_gen",
+  "name": "Image generation",
+  "description": "Generate an image or edit a reference image through the connected provider image backend.",
+  "category": "generation",
+  "model": "image",
+  "params_schema": {
+    "type": "object",
+    "properties": {
+      "style": { "type": "string", "description": "Optional visual style" },
+      "width": { "type": "integer", "minimum": 1, "maximum": 4096 },
+      "height": { "type": "integer", "minimum": 1, "maximum": 4096 },
+      "transparent": {
+        "type": "boolean",
+        "default": false,
+        "description": "Set true for sprites, icons, or any no-background asset; request real PNG alpha and clean a keyed fallback if the provider returns an opaque image."
+      },
+      "palette": { "type": "string", "description": "Palette colors or style guidance" }
+    }
+  }
+}

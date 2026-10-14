@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Bixel Studio</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Bixel Project Archive</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.bixel.studio.project</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Bixel</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.3</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.bixel.studio.paypal</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>bixel</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_bixel-remote._tcp</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Bixel uses the camera to scan the pairing QR code shown on your Mac.</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 Ajith Berlin A</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Bixel connects to your Mac on the local network to sync projects and share the AI assistant.</string>
+	<key>PayPalClientID</key>
+	<string>$(PAYPAL_CLIENT_ID)</string>
+	<key>PayPalClientSecret</key>
+	<string>$(PAYPAL_CLIENT_SECRET)</string>
+	<key>PayPalEnv</key>
+	<string>$(PAYPAL_ENV)</string>
+	<key>UIDeviceFamily</key>
+	<array>
+		<integer>2</integer>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Bixel Color</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.bixel.studio.color-drop</string>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.zip-archive</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Bixel Project Archive</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.bixel.studio.project</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>bix</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/x-bixel-project</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

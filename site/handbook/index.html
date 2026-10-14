@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bixel Studio Handbook — Official Documentation</title>
+  <meta name="description" content="Official documentation and user guide for Bixel Studio on macOS. Learn pixel art tools, animation timelines, tilemaps, and AI assistant skills.">
+  <link rel="icon" type="image/png" href="../assets/images/favicon.png">
+  <link rel="apple-touch-icon" href="../assets/images/slime-logo.png">
+  <link rel="stylesheet" href="../assets/css/style.css">
+  <link rel="stylesheet" href="../assets/css/handbook.css">
+</head>
+<body class="handbook-body">
+
+  <!-- Top Navigation Bar (Procreate Handbook Style) -->
+  <header class="hb-topbar">
+    <div class="hb-brand">
+      <a href="../index.html" style="display: flex; align-items: center; gap: 10px;">
+        <img src="../assets/images/slime-logo.png" class="hb-logo-img" alt="Bixel Slime" width="28" height="28">
+        <span class="hb-brand-title">Bixel Studio</span>
+      </a>
+      <span class="hb-badge">Handbook</span>
+    </div>
+
+    <div class="hb-actions">
+      <div class="hb-search-wrap">
+        <svg class="hb-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="handbook-search" class="hb-search-input" placeholder="Search handbook...">
+      </div>
+      <a href="../index.html" class="pro-btn pro-btn-tertiary pro-btn-sm">Overview</a>
+      <a href="../support.html" class="pro-btn pro-btn-tertiary pro-btn-sm">Support</a>
+      <a href="https://github.com/ajithberlin/bixel-native" target="_blank" rel="noopener" class="gh-star-pill" title="Star on GitHub">
+        <svg class="gh-star-icon" width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"></path>
+        </svg>
+        <span class="gh-star-label">Star</span>
+        <span class="gh-star-divider"></span>
+        <span class="github-stars-count">1</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="hb-layout">
+    <!-- Sticky Sidebar Navigation -->
+    <aside class="hb-sidebar">
+      <div class="sidebar-group">
+        <span class="sidebar-group-title">Getting Started</span>
+        <ul class="sidebar-menu">
+          <li><a href="#introduction" class="sidebar-item-link active"><span class="sidebar-item-icon">📖</span> Introduction</a></li>
+          <li><a href="#quick-start" class="sidebar-item-link"><span class="sidebar-item-icon">🚀</span> Quick Start</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <span class="sidebar-group-title">Interface & Navigation</span>
+        <ul class="sidebar-menu">
+          <li><a href="#interface" class="sidebar-item-link"><span class="sidebar-item-icon">🖥️</span> The Interface</a></li>
+          <li><a href="#gestures-shortcuts" class="sidebar-item-link"><span class="sidebar-item-icon">⌨️</span> Gestures & Shortcuts</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <span class="sidebar-group-title">Drawing & Color</span>
+        <ul class="sidebar-menu">
+          <li><a href="#tools" class="sidebar-item-link"><span class="sidebar-item-icon">✏️</span> Drawing Tools</a></li>
+          <li><a href="#palettes" class="sidebar-item-link"><span class="sidebar-item-icon">🎨</span> Color & Palettes</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <span class="sidebar-group-title">Creative Engine</span>
+        <ul class="sidebar-menu">
+          <li><a href="#layers-cels" class="sidebar-item-link"><span class="sidebar-item-icon">📑</span> Layers & Cels</a></li>
+          <li><a href="#animation" class="sidebar-item-link"><span class="sidebar-item-icon">⏱️</span> Animation Assist</a></li>
+          <li><a href="#tilemaps" class="sidebar-item-link"><span class="sidebar-item-icon">🗺️</span> Tilemap Designer</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <span class="sidebar-group-title">Intelligence & Export</span>
+        <ul class="sidebar-menu">
+          <li><a href="#ai-assistant" class="sidebar-item-link"><span class="sidebar-item-icon">🤖</span> AI Studio Assistant</a></li>
+          <li><a href="#export" class="sidebar-item-link"><span class="sidebar-item-icon">📦</span> Export & Pipelines</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- Main Content Column -->
+    <main class="hb-main">
+
+      <!-- CHAPTER 1: INTRODUCTION -->
+      <section class="hb-chapter" id="introduction">
+        <div class="hb-breadcrumbs">
+          <a href="../index.html">Bixel Studio</a> &gt; <span>Handbook</span> &gt; <span>Introduction</span>
+        </div>
+        <span class="hb-chapter-eyebrow">Chapter 01</span>
+        <h1 class="hb-chapter-title">Introduction</h1>
+        <p class="hb-lead">
+          Welcome to Bixel Studio, the native macOS 2D game-asset and pixel art studio designed for speed, precision, and tactile creative joy.
+        </p>
+
+        <div class="hb-section">
+          <h3>What is Bixel Studio?</h3>
+          <p>
+            Bixel Studio brings the fluid elegance of modern Apple design to retro game asset creation. Built with a lightweight SwiftUI frontend, hardware-accelerated MetalKit rendering, and an ultra-fast headless Rust core, Bixel Studio delivers 60fps pan and zoom alongside pixel-perfect compositing.
+          </p>
+          <p>
+            Whether you are sketching a 16&times;16 character sprite, choreographing a smooth combat animation, or mapping out an entire RPG dungeon, Bixel provides dedicated workflows without context switching.
+          </p>
+
+          <div class="hb-callout hb-callout-note">
+            <div class="hb-callout-icon">💡</div>
+            <div>
+              <strong>Architecture Contract:</strong> Swift sends high-level drawing commands; the Rust core processes entire buffers and composites whole frames directly into Metal GPU textures. This keeps drawing latency-free.
+            </div>
+          </div>
+
+          <h3>System Requirements</h3>
+          <ul style="color: var(--text-secondary); margin-left: 20px; line-height: 1.8;">
+            <li><strong>Operating System:</strong> macOS 13.0 (Ventura) or later (macOS Sonoma / Sequoia recommended).</li>
+            <li><strong>Hardware:</strong> Apple Silicon (M1/M2/M3/M4) or Intel Mac with Metal support.</li>
+            <li><strong>Toolchain:</strong> Xcode 15.0+, Rust toolchain (cargo), and XcodeGen.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- CHAPTER 2: QUICK START -->
+      <section class="hb-chapter" id="quick-start">
+        <span class="hb-chapter-eyebrow">Chapter 02</span>
+        <h2 class="hb-chapter-title">Quick Start</h2>
+        <p class="hb-lead">
+          Get Bixel Studio up and running on your Mac in seconds by cloning the repository and running the automated start script.
+        </p>
+
+        <div class="hb-section">
+          <h3>Clone &amp; Start</h3>
+          <p>
+            Clone the repository and launch the setup script directly from your terminal:
+          </p>
+
+          <div class="hb-code">git clone https://github.com/ajithberlin/bixel-native.git
+cd bixel-native
+./scripts/start.sh</div>
+
+          <p>Or run the complete one-liner command:</p>
+          <div class="hb-code" style="color: #00f59b;">git clone https://github.com/ajithberlin/bixel-native.git &amp;&amp; cd bixel-native &amp;&amp; ./scripts/start.sh</div>
+
+          <p>This script executes the complete setup sequence automatically:</p>
+          <ol style="color: var(--text-secondary); margin-left: 24px; line-height: 1.8;">
+            <li>Verifies that the Rust toolchain (cargo) and XcodeGen are installed.</li>
+            <li>Sets up your local development environment file (<span style="font-family: var(--font-mono); color: #34d399;">.env.dev</span>) if missing.</li>
+            <li>Generates the Xcode project file (<span style="font-family: var(--font-mono);">Bixel.xcodeproj</span>).</li>
+            <li>Opens the project in Xcode, ready to hit <span class="kbd">Cmd + R</span> to run.</li>
+          </ol>
+
+          <div class="hb-callout hb-callout-tip">
+            <div class="hb-callout-icon">⚡</div>
+            <div>
+              <strong>Terminal Build &amp; Launch:</strong> To build and launch the app directly without opening the Xcode GUI, run:
+              <br><code style="color: #00f59b;">./scripts/start.sh --run</code>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CHAPTER 3: THE INTERFACE -->
+      <section class="hb-chapter" id="interface">
+        <span class="hb-chapter-eyebrow">Chapter 03</span>
+        <h2 class="hb-chapter-title">The Interface</h2>
+        <p class="hb-lead">
+          A distraction-free, dark workspace engineered to keep your artwork front and center.
+        </p>
+
+        <div class="hb-section">
+          <div class="hb-screenshot-card">
+            <div class="screenshot-slot" data-slot="interface-overview">
+              <img src="../assets/screenshots/interface-overview.png" alt="Bixel Studio Workspace Layout">
+            </div>
+            <div class="hb-screenshot-caption">
+              <span>Main workspace overview</span>
+              <code>site/assets/screenshots/interface-overview.png</code>
+            </div>
+          </div>
+
+          <h3>Workspace Zones</h3>
+          <table class="hb-table">
+            <thead>
+              <tr>
+                <th>Zone</th>
+                <th>Location</th>
+                <th>Function</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Top Bar</strong></td>
+                <td>Top Edge</td>
+                <td>Project title, active zoom level, Undo/Redo triggers, and AI Assistant toggle.</td>
+              </tr>
+              <tr>
+                <td><strong>Tool Rail</strong></td>
+                <td>Left Edge</td>
+                <td>Single-click access to Pencil, Brush, Eraser, Line, Rectangle, Bucket Fill, and Eyedropper.</td>
+              </tr>
+              <tr>
+                <td><strong>Canvas View</strong></td>
+                <td>Center</td>
+                <td>Metal-accelerated pixel canvas supporting infinite pan, smooth zoom, and pixel grid snapping.</td>
+              </tr>
+              <tr>
+                <td><strong>Timeline Dock</strong></td>
+                <td>Bottom Edge</td>
+                <td>Animation frame reel, cel duration controls, Onion Skin toggle, and real-time playback.</td>
+              </tr>
+              <tr>
+                <td><strong>Inspector Panel</strong></td>
+                <td>Right Edge</td>
+                <td>Layer stack, blend modes, Color Disc palette, and tilemap inspector drawers.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- CHAPTER 4: GESTURES & SHORTCUTS -->
+      <section class="hb-chapter" id="gestures-shortcuts">
+        <span class="hb-chapter-eyebrow">Chapter 04</span>
+        <h2 class="hb-chapter-title">Gestures & Shortcuts</h2>
+        <p class="hb-lead">
+          Fly through your workflow using fluid trackpad gestures and familiar single-key shortcuts.
+        </p>
+
+        <div class="hb-section">
+          <h3>Essential Shortcuts</h3>
+          <table class="hb-table">
+            <thead>
+              <tr>
+                <th>Action</th>
+                <th>Shortcut</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Pencil Tool</strong></td>
+                <td><span class="kbd">B</span> or <span class="kbd">P</span></td>
+                <td>Selects the single-pixel precision drawing pencil.</td>
+              </tr>
+              <tr>
+                <td><strong>Eraser</strong></td>
+                <td><span class="kbd">E</span></td>
+                <td>Toggles the pixel eraser.</td>
+              </tr>
+              <tr>
+                <td><strong>Bucket Fill</strong></td>
+                <td><span class="kbd">G</span></td>
+                <td>Flood fills contiguous color regions with active palette color.</td>
+              </tr>
+              <tr>
+                <td><strong>Eyedropper</strong></td>
+                <td><span class="kbd">I</span> or <span class="kbd">Option + Click</span></td>
+                <td>Samples pixel color directly under cursor.</td>
+              </tr>
+              <tr>
+                <td><strong>Play / Pause Animation</strong></td>
+                <td><span class="kbd">Spacebar</span></td>
+                <td>Toggles playback of active animation loop.</td>
+              </tr>
+              <tr>
+                <td><strong>Step Backward / Forward</strong></td>
+                <td><span class="kbd">,</span> and <span class="kbd">.</span></td>
+                <td>Navigates one frame backward or forward along timeline.</td>
+              </tr>
+              <tr>
+                <td><strong>Undo / Redo</strong></td>
+                <td><span class="kbd">Cmd + Z</span> / <span class="kbd">Cmd + Shift + Z</span></td>
+                <td>Traverses non-destructive action history.</td>
+              </tr>
+              <tr>
+                <td><strong>Toggle AI Panel</strong></td>
+                <td><span class="kbd">Cmd + K</span></td>
+                <td>Opens or closes the AI Studio Assistant drawer.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- CHAPTER 5: DRAWING TOOLS & PALETTES -->
+      <section class="hb-chapter" id="tools">
+        <span class="hb-chapter-eyebrow">Chapter 05</span>
+        <h2 class="hb-chapter-title">Drawing Tools & Palettes</h2>
+        <p class="hb-lead">
+          Everything you need to craft iconic sprites with authentic retro color fidelity.
+        </p>
+
+        <div class="hb-section" id="palettes">
+          <div class="hb-screenshot-card">
+            <div class="screenshot-slot" data-slot="color-palette">
+              <img src="../assets/screenshots/color-palette.png" alt="Color Disc & Palette Presets">
+            </div>
+            <div class="hb-screenshot-caption">
+              <span>Procreate-style Color Disc & Palette Manager</span>
+              <code>site/assets/screenshots/color-palette.png</code>
+            </div>
+          </div>
+
+          <h3>Built-in Palette Presets</h3>
+          <ul style="color: var(--text-secondary); margin-left: 20px; line-height: 1.8;">
+            <li><strong>DB32 (DawnBringer 32):</strong> The beloved versatile 32-color palette for rich 16-bit RPGs and platformers.</li>
+            <li><strong>PICO-8:</strong> The classic 16-color fantasy console palette, vibrant and high-contrast.</li>
+            <li><strong>Game Boy (4-shade DMG):</strong> Authentic 4-color monochrome green tints for authentic 8-bit handheld nostalgia.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- CHAPTER 6: LAYERS & CELS -->
+      <section class="hb-chapter" id="layers-cels">
+        <span class="hb-chapter-eyebrow">Chapter 06</span>
+        <h2 class="hb-chapter-title">Layers & Cels</h2>
+        <p class="hb-lead">
+          Organize complex game characters, backgrounds, and visual effects with non-destructive layers.
+        </p>
+
+        <div class="hb-section">
+          <h3>Understanding Cels</h3>
+          <p>
+            In traditional animation and Aseprite terminology, an individual image at the intersection of a <em>Layer</em> and a <em>Frame</em> is called a <strong>Cel</strong>.
+          </p>
+          <p>
+            Each layer can have independent opacity, visibility toggles, and blend modes (Normal, Multiply, Screen, Overlay). Changes to one layer never contaminate the pixels of underlying layers.
+          </p>
+        </div>
+      </section>
+
+      <!-- CHAPTER 7: ANIMATION ASSIST -->
+      <section class="hb-chapter" id="animation">
+        <span class="hb-chapter-eyebrow">Chapter 07</span>
+        <h2 class="hb-chapter-title">Animation Assist</h2>
+        <p class="hb-lead">
+          Powerful timeline controls, onion skinning, and frame tagging make frame-by-frame animation effortless.
+        </p>
+
+        <div class="hb-section">
+          <div class="hb-screenshot-card">
+            <div class="screenshot-slot" data-slot="animation-timeline">
+              <img src="../assets/screenshots/animation-timeline.png" alt="Animation Timeline">
+            </div>
+            <div class="hb-screenshot-caption">
+              <span>Timeline with Frame Tags & Onion Skinning</span>
+              <code>site/assets/screenshots/animation-timeline.png</code>
+            </div>
+          </div>
+
+          <h3>Onion Skinning</h3>
+          <p>
+            Turn on Onion Skinning (<span class="kbd">O</span>) to see ghosted outlines of previous frames (tinted red) and upcoming frames (tinted blue). You can configure the number of ghosted frames and their opacity to achieve pitch-perfect motion curves.
+          </p>
+        </div>
+      </section>
+
+      <!-- CHAPTER 8: TILEMAP DESIGNER -->
+      <section class="hb-chapter" id="tilemaps">
+        <span class="hb-chapter-eyebrow">Chapter 08</span>
+        <h2 class="hb-chapter-title">Tilemap Designer</h2>
+        <p class="hb-lead">
+          Design interactive 2D levels and export directly to Tiled JSON format for Godot, Unity, or custom engines.
+        </p>
+
+        <div class="hb-section">
+          <div class="hb-screenshot-card">
+            <div class="screenshot-slot" data-slot="tilemap-editor">
+              <img src="../assets/screenshots/tilemap-editor.png" alt="Tilemap Designer">
+            </div>
+            <div class="hb-screenshot-caption">
+              <span>Grid-based Tilemap Level Editor</span>
+              <code>site/assets/screenshots/tilemap-editor.png</code>
+            </div>
+          </div>
+
+          <h3>Features</h3>
+          <ul style="color: var(--text-secondary); margin-left: 20px; line-height: 1.8;">
+            <li><strong>Autotiling:</strong> Automatically calculate corners, edges, and inner turns for terrain, cliffs, and water.</li>
+            <li><strong>Layer Hierarchy:</strong> Separate collision boundaries, background terrain, decorative foliage, and entity spawn markers.</li>
+            <li><strong>Tiled Interop:</strong> Load and save directly to standard Tiled JSON maps without data loss.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- CHAPTER 9: AI STUDIO ASSISTANT -->
+      <section class="hb-chapter" id="ai-assistant">
+        <span class="hb-chapter-eyebrow">Chapter 09</span>
+        <h2 class="hb-chapter-title">AI Studio Assistant</h2>
+        <p class="hb-lead">
+          Embed an intelligent assistant powered by OpenRouter or ChatGPT Codex right inside your creative process.
+        </p>
+
+        <div class="hb-section">
+          <div class="hb-screenshot-card">
+            <div class="screenshot-slot" data-slot="ai-panel">
+              <img src="../assets/screenshots/ai-panel.png" alt="AI Studio Assistant Drawer">
+            </div>
+            <div class="hb-screenshot-caption">
+              <span>AI Co-Pilot Panel with Skill Commands</span>
+              <code>site/assets/screenshots/ai-panel.png</code>
+            </div>
+          </div>
+
+          <h3>AI Skills & Slash Commands</h3>
+          <p>
+            Type <span style="font-family: var(--font-mono); color: var(--accent-magenta);">/</span> in the AI prompt box to trigger dedicated game-asset skills:
+          </p>
+          <table class="hb-table">
+            <thead>
+              <tr>
+                <th>Skill</th>
+                <th>Function</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>/spritesheet</code></td>
+                <td>Generates a multi-frame character animation grid, sliced into frames.</td>
+              </tr>
+              <tr>
+                <td><code>/next_frame</code></td>
+                <td>Inspects current canvas cel and predicts the next animation frame.</td>
+              </tr>
+              <tr>
+                <td><code>/color_reduce</code></td>
+                <td>Quantizes an imported image into strict retro palette limits (e.g. 16 colors).</td>
+              </tr>
+              <tr>
+                <td><code>/remove_bg</code></td>
+                <td>Detects and removes background pixels to isolate sprites cleanly.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- CHAPTER 10: EXPORT & PIPELINES -->
+      <section class="hb-chapter" id="export">
+        <span class="hb-chapter-eyebrow">Chapter 10</span>
+        <h2 class="hb-chapter-title">Export & Pipelines</h2>
+        <p class="hb-lead">
+          Export game-ready assets directly into your preferred game engine.
+        </p>
+
+        <div class="hb-section">
+          <h3>Supported Export Formats</h3>
+          <ul style="color: var(--text-secondary); margin-left: 20px; line-height: 1.8;">
+            <li><strong>Spritesheet PNG + JSON Atlas:</strong> Generates packed texture atlas with frame coordinate metadata.</li>
+            <li><strong>Animated GIF:</strong> Looping animation preview ready for Discord, Twitter/X, or portfolio showcases.</li>
+            <li><strong>PNG Sequence:</strong> Numbered individual frames (<span style="font-family: var(--font-mono);">frame_000.png</span>, <span style="font-family: var(--font-mono);">frame_001.png</span>).</li>
+            <li><strong>Tiled JSON Map:</strong> Native level export ready to drag straight into Godot 4 or Unity.</li>
+          </ul>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="../assets/js/handbook.js"></script>
+</body>
+</html>

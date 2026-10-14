@@ -1,0 +1,37 @@
+[package]
+name = "bixel-ai"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "AI assistant engine for Bixel Studio: embeds the full goose agent (agent loop, skill/extension system) over the OpenRouter provider, plus pixel-art skills exposed as goose tools."
+
+[dependencies]
+bixel-core = { path = "../bixel-core" }
+goose = { git = "https://github.com/aaif-goose/goose", rev = "13f4d26e1e703d6ed1552c6e599abdfa8d3e44ff", default-features = false, features = ["rustls-tls"] }
+# Same rev as `goose` (Cargo unifies the git checkout): gives direct access to
+# the Provider trait + ModelConfig used by Agent::update_provider.
+goose-providers = { git = "https://github.com/aaif-goose/goose", rev = "13f4d26e1e703d6ed1552c6e599abdfa8d3e44ff", default-features = false, features = ["rustls-tls"] }
+rmcp = { version = "3.2.0", default-features = false, features = ["server", "macros", "transport-io"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "io-util", "fs"] }
+futures = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+schemars = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
+png = "0.17"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "multipart", "json", "rustls"] }
+chrono = { version = "0.4", default-features = false, features = ["serde", "clock"] }
+# Embeds the workspace `skills/` packages into the binary so they can be
+# installed into goose's global skills dir at runtime (same approach goose uses
+# for its builtins).
+include_dir = "0.7"
+
+# goose pins icu_locale/icu_calendar to 2.1.1 (temporal_rs workaround); idna_adapter
+# 1.2.2 bumps icu_normalizer to 2.2+ which pulls icu_collections 2.3 and conflicts.
+# Pin 1.2.1 to keep the icu 2.1.x tree unified.
+idna_adapter = "=1.2.1"

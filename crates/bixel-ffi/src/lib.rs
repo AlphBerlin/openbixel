@@ -1,0 +1,2961 @@
+//! C ABI for the Bixel engine, consumed by Swift via a cbindgen-generated
+//! header.
+//!
+//! Design rules (see the Swift side in `app/`):
+//! * Opaque handles are `Arc<Mutex<_>>` behind `#[repr(C)]` token structs so
+//!   they are thread-safe and can be shared between the document and its
+//!   timeline. The C header sees only `struct BixelDoc;`-style opaque pointers.
+//! * Bulk pixel data is written into caller-provided buffers (never allocated
+//!   per-pixel, never crossing the FFI boundary repeatedly).
+//! * Strings are returned as NUL-terminated `char*` and freed with
+//!   [`bixel_string_free`].
+
+#![allow(clippy::missing_safety_doc)]
+
+use std::ffi::{c_char, CStr, CString};
+use std::sync::{Arc, Mutex};
+
+use bixel_core::color::Rgba;
+use bixel_core::document::AsepriteDoc;
+use bixel_core::palette;
+use bixel_core::timeline::{LoopMode, TimelineController};
+
+// ------------------------------------------------------------- opaque types
+
+/// Opaque handle to a sprite document (`Arc<Mutex<AsepriteDoc>>`).
+#[repr(C)]
+pub struct BixelDoc {
+    _private: [u8; 0],
+}
+
+/// Opaque handle to a tile layer (`Mutex<TileLayer>`).
+#[repr(C)]
+pub struct BixelTileLayer {
+    _private: [u8; 0],
+}
+
+/// Opaque handle to a tile map (`Arc<Mutex<TileMap>>`).
+#[repr(C)]
+pub struct BixelMap {
+    _private: [u8; 0],
+}
+
+/// Opaque handle to an animation controller (`TimelineController<...>`).
+#[repr(C)]
+pub struct BixelTimeline {
+    _private: [u8; 0],
+}
+
+#[doc(hidden)]
+type RealDoc = Arc<Mutex<AsepriteDoc>>;
+#[doc(hidden)]
+type RealTileLayer = Mutex<bixel_core::tilemap::TileLayer>;
+#[doc(hidden)]
+type RealMap = Arc<Mutex<bixel_core::map::TileMap>>;
+#[doc(hidden)]
+type RealTimeline = TimelineController<Arc<Mutex<AsepriteDoc>>>;
+
+#[doc(hidden)]
+#[inline]
+unsafe fn doc<'a>(ptr: *mut BixelDoc) -> &'a RealDoc {
+    unsafe { &*(ptr as *const RealDoc) }
+}
+
+#[doc(hidden)]
+#[inline]
+unsafe fn doc_ref<'a>(ptr: *const BixelDoc) -> &'a RealDoc {
+    unsafe { &*(ptr as *const RealDoc) }
+}
+
+/// Lock a document handle, recovering from a poisoned mutex. A panic that
+/// unwinds across the C ABI is undefined behaviour, so a prior panic (which
+/// poisons the lock) must never make later calls panic again.
+#[doc(hidden)]
+#[inline]
+fn lock_doc(ptr: *mut BixelDoc) -> std::sync::MutexGuard<'static, AsepriteDoc> {
+    match unsafe { doc(ptr) }.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+#[doc(hidden)]
+#[inline]
+unsafe fn tilelayer<'a>(ptr: *mut BixelTileLayer) -> &'a mut RealTileLayer {
+    unsafe { &mut *(ptr as *mut RealTileLayer) }
+}
+
+#[doc(hidden)]
+#[inline]
+unsafe fn tilelayer_ref<'a>(ptr: *const BixelTileLayer) -> &'a RealTileLayer {
+    unsafe { &*(ptr as *const RealTileLayer) }
+}
+
+#[doc(hidden)]
+#[inline]
+unsafe fn map<'a>(ptr: *mut BixelMap) -> &'a RealMap {
+    unsafe { &*(ptr as *const RealMap) }
+}
+
+#[doc(hidden)]
+#[inline]
+unsafe fn map_ref<'a>(ptr: *const BixelMap) -> &'a RealMap {
+    unsafe { &*(ptr as *const RealMap) }
+}
+
+#[doc(hidden)]
+#[inline]
+unsafe fn timeline<'a>(ptr: *mut BixelTimeline) -> &'a mut RealTimeline {
+    unsafe { &mut *(ptr as *mut RealTimeline) }
+}
+
+#[doc(hidden)]
+#[inline]
+unsafe fn timeline_ref<'a>(ptr: *const BixelTimeline) -> &'a RealTimeline {
+    unsafe { &*(ptr as *const RealTimeline) }
+}
+
+// ---------------------------------------------------------------- helpers
+
+fn arg_str(ptr: *const c_char) -> String {
+    if ptr.is_null() {
+        return String::new();
+    }
+    unsafe { CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn out_cstr(s: String) -> *mut c_char {
+    CString::new(s).unwrap_or_default().into_raw()
+}
+
+/// Write an owned error string to a caller out-param (freed with
+/// [`bixel_string_free`]). A null pointer is ignored.
+#[doc(hidden)]
+unsafe fn write_err(err: *mut *mut c_char, message: String) {
+    if !err.is_null() {
+        unsafe { *err = out_cstr(message) };
+    }
+}
+
+/// Free a string returned by any `bixel_*` function that returns `char*`.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_string_free(ptr: *mut c_char) {
+    if !ptr.is_null() {
+        unsafe { drop(CString::from_raw(ptr)) };
+    }
+}
+
+// ------------------------------------------------------------- color / rgba
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct BixelColor {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+impl From<BixelColor> for Rgba {
+    fn from(c: BixelColor) -> Self {
+        Rgba::new(c.r, c.g, c.b, c.a)
+    }
+}
+
+impl From<Rgba> for BixelColor {
+    fn from(c: Rgba) -> Self {
+        BixelColor { r: c.r, g: c.g, b: c.b, a: c.a }
+    }
+}
+
+// -------------------------------------------------------------- document
+
+#[no_mangle]
+pub extern "C" fn bixel_doc_new(width: u32, height: u32) -> *mut BixelDoc {
+    let real = Arc::new(Mutex::new(AsepriteDoc::new(
+        width.max(1) as usize,
+        height.max(1) as usize,
+        &[],
+    )));
+    Box::into_raw(Box::new(real)) as *mut BixelDoc
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_free(ptr: *mut BixelDoc) {
+    if !ptr.is_null() {
+        unsafe { drop(Box::from_raw(ptr as *mut RealDoc)) };
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_width(ptr: *const BixelDoc) -> u32 {
+    unsafe { doc_ref(ptr) }.lock().unwrap().width as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_height(ptr: *const BixelDoc) -> u32 {
+    unsafe { doc_ref(ptr) }.lock().unwrap().height as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_frame_count(ptr: *const BixelDoc) -> u32 {
+    unsafe { doc_ref(ptr) }.lock().unwrap().frames.len() as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_layer_count(ptr: *const BixelDoc) -> u32 {
+    unsafe { doc_ref(ptr) }.lock().unwrap().layers.len() as u32
+}
+
+/// Add a layer owned by `frame` (per-frame layer stacks). Returns the new
+/// global layer index, or -1 for an invalid frame.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_add_layer_for_frame(
+    ptr: *mut BixelDoc,
+    name: *const c_char,
+    frame: u32,
+) -> i32 {
+    let name = arg_str(name);
+    unsafe { doc(ptr) }
+        .lock()
+        .unwrap()
+        .add_layer_for_frame(frame as usize, Some(&name))
+        .map_or(-1, |index| index as i32)
+}
+
+/// Owning frame of a global layer index, or `u32::MAX` when out of range.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_layer_frame(ptr: *const BixelDoc, layer: u32) -> u32 {
+    unsafe { doc_ref(ptr) }
+        .lock()
+        .unwrap()
+        .layer_frame(layer as usize)
+        .map_or(u32::MAX, |frame| frame as u32)
+}
+
+/// Stable identity of a layer (survives reorders/undo), or 0 when out of range.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_layer_uid(ptr: *const BixelDoc, layer: u32) -> u64 {
+    unsafe { doc_ref(ptr) }
+        .lock()
+        .unwrap()
+        .layers
+        .get(layer as usize)
+        .map(|l| l.uid)
+        .unwrap_or(0)
+}
+
+/// Global layer indices owned by `frame`, bottom-first, as a JSON array.
+/// Free with [`bixel_string_free`].
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_frame_layers_json(ptr: *const BixelDoc, frame: u32) -> *mut c_char {
+    let doc = unsafe { doc_ref(ptr) }.lock().unwrap();
+    let layers = doc.frame_layers(frame as usize);
+    out_cstr(serde_json::to_string(&layers).unwrap_or_else(|_| "[]".into()))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_set_pixel(
+    ptr: *mut BixelDoc,
+    layer: u32,
+    frame: u32,
+    x: u32,
+    y: u32,
+    color: BixelColor,
+) {
+    unsafe { doc(ptr) }
+        .lock()
+        .unwrap()
+        .set_pixel(layer as usize, frame as usize, x as usize, y as usize, color.into());
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_get_pixel(
+    ptr: *const BixelDoc,
+    layer: u32,
+    frame: u32,
+    x: u32,
+    y: u32,
+) -> BixelColor {
+    unsafe { doc_ref(ptr) }
+        .lock()
+        .unwrap()
+        .get_pixel(layer as usize, frame as usize, x as usize, y as usize)
+        .into()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_add_layer(ptr: *mut BixelDoc, name: *const c_char) -> u32 {
+    let name = arg_str(name);
+    unsafe { doc(ptr) }.lock().unwrap().add_layer(Some(&name)) as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_add_frame(ptr: *mut BixelDoc, duration_ms: u32) -> u32 {
+    unsafe { doc(ptr) }.lock().unwrap().add_frame(duration_ms) as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_reorder_frame(ptr: *mut BixelDoc, from: u32, to: u32) {
+    unsafe { doc(ptr) }.lock().unwrap().reorder_frame(from as usize, to as usize);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_remove_frame(ptr: *mut BixelDoc, idx: u32) {
+    unsafe { doc(ptr) }.lock().unwrap().remove_frame(idx as usize);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_snapshot(ptr: *mut BixelDoc) {
+    unsafe { doc(ptr) }.lock().unwrap().snapshot();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_undo(ptr: *mut BixelDoc) -> bool {
+    unsafe { doc(ptr) }.lock().unwrap().undo()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_redo(ptr: *mut BixelDoc) -> bool {
+    unsafe { doc(ptr) }.lock().unwrap().redo()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_can_undo(ptr: *const BixelDoc) -> bool {
+    unsafe { doc_ref(ptr) }.lock().unwrap().can_undo()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_can_redo(ptr: *const BixelDoc) -> bool {
+    unsafe { doc_ref(ptr) }.lock().unwrap().can_redo()
+}
+
+/// Composite a frame into a caller-provided RGBA buffer of
+/// `width * height * 4` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_composite(ptr: *mut BixelDoc, frame: u32, out: *mut u8) {
+    if out.is_null() {
+        return;
+    }
+    let buf = unsafe { doc(ptr) }.lock().unwrap().composite_frame(frame as usize);
+    unsafe {
+        std::ptr::copy_nonoverlapping(buf.as_ptr(), out, buf.len());
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_resize(ptr: *mut BixelDoc, width: u32, height: u32) {
+    unsafe { doc(ptr) }
+        .lock()
+        .unwrap()
+        .resize(width as usize, height as usize);
+}
+
+/// Load RGBA pixel data into `(layer, frame)`, resizing the document first.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_load_image(
+    ptr: *mut BixelDoc,
+    data: *const u8,
+    width: u32,
+    height: u32,
+    layer: u32,
+    frame: u32,
+) {
+    if data.is_null() {
+        return;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(data, (width * height * 4) as usize) };
+    unsafe { doc(ptr) }
+        .lock()
+        .unwrap()
+        .load_image_data(slice, width as usize, height as usize, layer as usize, frame as usize);
+}
+
+/// Pack composited frames row-major into a caller-owned RGBA buffer.
+/// Buffer length must exactly match the packed dimensions; capped at 256 MB.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_pack_frames(
+    ptr: *const BixelDoc, columns: u32, out: *mut u8, out_len: usize,
+) -> bool {
+    if ptr.is_null() || out.is_null() || columns == 0 || out_len > 256 * 1024 * 1024 { return false; }
+    let document = unsafe { doc_ref(ptr) }.lock().unwrap();
+    let columns = columns as usize;
+    let rows = document.frames.len() / columns + usize::from(document.frames.len() % columns != 0);
+    let expected = document.width.checked_mul(columns)
+        .and_then(|w| document.height.checked_mul(rows).and_then(|h| w.checked_mul(h)))
+        .and_then(|n| n.checked_mul(4));
+    if expected != Some(out_len) || out_len == 0 { return false; }
+    match document.pack_frames(columns) {
+        Ok((pixels, _, _)) => {
+            unsafe { std::ptr::copy_nonoverlapping(pixels.as_ptr(), out, pixels.len()); }
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Place RGBA data on a new layer without resizing. Returns layer index, or -1.
+/// `data` must point to `data_len` readable bytes. Records one undo snapshot.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_place_image(
+    ptr: *mut BixelDoc, data: *const u8, data_len: usize,
+    width: u32, height: u32, x: i32, y: i32, frame: u32, name: *const c_char,
+) -> i32 {
+    if ptr.is_null() || data.is_null() || data_len > 256 * 1024 * 1024 { return -1; }
+    let expected = (width as usize).checked_mul(height as usize).and_then(|n| n.checked_mul(4));
+    if expected != Some(data_len) || data_len == 0 { return -1; }
+    let data = unsafe { std::slice::from_raw_parts(data, data_len) };
+    let name = if name.is_null() { "Placed image" } else { unsafe { CStr::from_ptr(name) }.to_str().unwrap_or("Placed image") };
+    unsafe { doc(ptr) }.lock().unwrap()
+        .place_image_data(data, width as usize, height as usize, x, y, frame as usize, name)
+        .map_or(-1, |index| index as i32)
+}
+
+/// Replace an RGBA region on an existing layer. Host owns undo snapshots.
+/// Returns false for invalid input, unavailable layer, or no canvas overlap.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_stamp_image(
+    ptr: *mut BixelDoc, data: *const u8, data_len: usize,
+    width: u32, height: u32, x: i32, y: i32, layer: u32, frame: u32,
+) -> bool {
+    if ptr.is_null() || data.is_null() || data_len > 256 * 1024 * 1024 { return false; }
+    let expected = (width as usize).checked_mul(height as usize).and_then(|n| n.checked_mul(4));
+    if expected != Some(data_len) || data_len == 0 { return false; }
+    let data = unsafe { std::slice::from_raw_parts(data, data_len) };
+    unsafe { doc(ptr) }.lock().unwrap()
+        .stamp_image_data(data, width as usize, height as usize, x, y, layer as usize, frame as usize)
+        .is_ok()
+}
+
+/// Transform a rectangular selection in-place with nearest-neighbor sampling.
+/// Rotation is clockwise quarter turns; the operation records one undo step.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_transform_rect(
+    ptr: *mut BixelDoc, layer: u32, frame: u32,
+    sx: u32, sy: u32, sw: u32, sh: u32,
+    dx: i32, dy: i32, dw: u32, dh: u32, rotation: u32,
+) -> bool {
+    if ptr.is_null() { return false; }
+    let mut document = lock_doc(ptr);
+    if document.transform_rect(layer as usize, frame as usize, sx as usize, sy as usize,
+                               sw as usize, sh as usize, dx, dy, dw as usize, dh as usize, rotation).is_err() {
+        return false;
+    }
+    true
+}
+
+/// Transform a rectangular selection with an arbitrary clockwise angle in
+/// radians using nearest-neighbor sampling. The destination rectangle should
+/// contain the rotated source bounds.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_transform_rect_angle(
+    ptr: *mut BixelDoc, layer: u32, frame: u32,
+    sx: u32, sy: u32, sw: u32, sh: u32,
+    dx: i32, dy: i32, dw: u32, dh: u32, angle: f64,
+) -> bool {
+    if ptr.is_null() || !angle.is_finite() { return false; }
+    let mut document = lock_doc(ptr);
+    if document.transform_rect_angle(layer as usize, frame as usize, sx as usize, sy as usize,
+                                     sw as usize, sh as usize, dx, dy, dw as usize, dh as usize,
+                                     angle).is_err() {
+        return false;
+    }
+    true
+}
+
+/// Import a regular RGBA sheet to a new layer, starting at frame zero.
+/// Cell size must match the canvas. Returns layer index, or -1; one undo step.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_import_sheet(
+    ptr: *mut BixelDoc, data: *const u8, data_len: usize,
+    width: u32, height: u32, cell_width: u32, cell_height: u32, name: *const c_char,
+) -> i32 {
+    if ptr.is_null() || data.is_null() || data_len > 256 * 1024 * 1024 { return -1; }
+    let expected = (width as usize).checked_mul(height as usize).and_then(|n| n.checked_mul(4));
+    if expected != Some(data_len) || data_len == 0 { return -1; }
+    let data = unsafe { std::slice::from_raw_parts(data, data_len) };
+    let name = if name.is_null() { "Imported sheet" } else { unsafe { CStr::from_ptr(name) }.to_str().unwrap_or("Imported sheet") };
+    unsafe { doc(ptr) }.lock().unwrap()
+        .import_sheet_data(data, width as usize, height as usize, cell_width as usize, cell_height as usize, name)
+        .map_or(-1, |index| index as i32)
+}
+
+/// Build a new document from an RGBA sheet image plus a JSON manifest
+/// (Bixel export, atlas/actions, or grid). Returns an owned `BixelDoc*` — free
+/// with [`bixel_doc_free`] — or null with `*err` set (free with
+/// [`bixel_string_free`]). This is the "import a spritesheet as a project" path.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_from_sheet(
+    data: *const u8,
+    data_len: usize,
+    image_width: u32,
+    image_height: u32,
+    manifest_json: *const c_char,
+    layer_name: *const c_char,
+    err: *mut *mut c_char,
+) -> *mut BixelDoc {
+    if data.is_null() || data_len == 0 || data_len > 256 * 1024 * 1024 {
+        unsafe { write_err(err, "Invalid sheet pixel buffer".into()) };
+        return std::ptr::null_mut();
+    }
+    let expected = (image_width as usize)
+        .checked_mul(image_height as usize)
+        .and_then(|n| n.checked_mul(4));
+    if expected != Some(data_len) {
+        unsafe { write_err(err, "Sheet dimensions do not match the pixel buffer".into()) };
+        return std::ptr::null_mut();
+    }
+    let slice = unsafe { std::slice::from_raw_parts(data, data_len) };
+    let plan = match bixel_core::sheet::SheetPlan::from_json_str(
+        &arg_str(manifest_json),
+        image_width,
+        image_height,
+    ) {
+        Ok(plan) => plan,
+        Err(e) => {
+            unsafe { write_err(err, e.to_string()) };
+            return std::ptr::null_mut();
+        }
+    };
+    let name = if layer_name.is_null() { "Sprites".to_string() } else { arg_str(layer_name) };
+    match AsepriteDoc::from_sheet(slice, image_width as usize, image_height as usize, &plan, &name) {
+        Ok(document) => Box::into_raw(Box::new(Arc::new(Mutex::new(document)))) as *mut BixelDoc,
+        Err(e) => {
+            unsafe { write_err(err, e) };
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Append a sheet plan to an existing document as new timeline frames on a new
+/// layer, preserving the current canvas. `replace` clears the existing frames
+/// first. Returns the number of frames added, or -1 with `*err` set. One undo step.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_append_sheet(
+    ptr: *mut BixelDoc,
+    data: *const u8,
+    data_len: usize,
+    image_width: u32,
+    image_height: u32,
+    manifest_json: *const c_char,
+    layer_name: *const c_char,
+    replace: bool,
+    err: *mut *mut c_char,
+) -> i32 {
+    if ptr.is_null() || data.is_null() || data_len == 0 || data_len > 256 * 1024 * 1024 {
+        unsafe { write_err(err, "Invalid sheet pixel buffer".into()) };
+        return -1;
+    }
+    let expected = (image_width as usize)
+        .checked_mul(image_height as usize)
+        .and_then(|n| n.checked_mul(4));
+    if expected != Some(data_len) {
+        unsafe { write_err(err, "Sheet dimensions do not match the pixel buffer".into()) };
+        return -1;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(data, data_len) };
+    let plan = match bixel_core::sheet::SheetPlan::from_json_str(
+        &arg_str(manifest_json),
+        image_width,
+        image_height,
+    ) {
+        Ok(plan) => plan,
+        Err(e) => {
+            unsafe { write_err(err, e.to_string()) };
+            return -1;
+        }
+    };
+    let name = if layer_name.is_null() { "Sprites".to_string() } else { arg_str(layer_name) };
+    let mut document = lock_doc(ptr);
+    match document.append_sheet_frames(
+        slice,
+        image_width as usize,
+        image_height as usize,
+        &plan,
+        &name,
+        replace,
+    ) {
+        Ok(report) => report.frames_added as i32,
+        Err(e) => {
+            unsafe { write_err(err, e) };
+            -1
+        }
+    }
+}
+
+/// Parse a sheet manifest without touching a document. Returns a JSON
+/// `SheetPlan` (canvas, frames, tags) or `{"error": "..."}`. Free with
+/// [`bixel_string_free`].
+#[no_mangle]
+pub unsafe extern "C" fn bixel_sheet_plan_json(
+    image_width: u32,
+    image_height: u32,
+    manifest_json: *const c_char,
+) -> *mut c_char {
+    match bixel_core::sheet::SheetPlan::from_json_str(
+        &arg_str(manifest_json),
+        image_width,
+        image_height,
+    ) {
+        Ok(plan) => out_cstr(plan.to_json()),
+        Err(e) => out_cstr(serde_json::json!({ "error": e.to_string() }).to_string()),
+    }
+}
+
+// --------------------------------------------------------------------- tags
+
+/// Number of tags (named frame ranges) in the document.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_tag_count(ptr: *const BixelDoc) -> u32 {
+    unsafe { doc_ref(ptr) }.lock().unwrap().tags.len() as u32
+}
+
+/// All tags as a JSON array of `{name, from, to, color}`. Free with
+/// [`bixel_string_free`].
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_tags_json(ptr: *const BixelDoc) -> *mut c_char {
+    let doc = unsafe { doc_ref(ptr) }.lock().unwrap();
+    out_cstr(serde_json::to_string(&doc.tags).unwrap_or_else(|_| "[]".into()))
+}
+
+/// Add or replace a tag by name. Returns true on success.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_add_tag(
+    ptr: *mut BixelDoc,
+    name: *const c_char,
+    from: u32,
+    to: u32,
+    color: *const c_char,
+) -> bool {
+    if ptr.is_null() {
+        return false;
+    }
+    let name = arg_str(name);
+    if name.trim().is_empty() {
+        return false;
+    }
+    let mut document = lock_doc(ptr);
+    let frame_count = document.frames.len();
+    let from = from as usize;
+    let to = to as usize;
+    if frame_count == 0 || from > to || to >= frame_count {
+        return false;
+    }
+    let color = {
+        let c = arg_str(color);
+        if c.trim().is_empty() { "#7f7fff".to_string() } else { c }
+    };
+    document.add_tag(&name, from, to, &color);
+    true
+}
+
+/// Remove a tag by name. Returns true when a tag was removed.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_remove_tag(ptr: *mut BixelDoc, name: *const c_char) -> bool {
+    if ptr.is_null() {
+        return false;
+    }
+    let name = arg_str(name);
+    let mut document = lock_doc(ptr);
+    let before = document.tags.len();
+    document.remove_tag(&name);
+    document.tags.len() != before
+}
+
+/// Rasterise a polyline stroke with a round brush (one FFI call per gesture).
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_stroke(
+    ptr: *mut BixelDoc,
+    layer: u32,
+    frame: u32,
+    xs: *const u32,
+    ys: *const u32,
+    count: u32,
+    color: BixelColor,
+    radius: u32,
+) {
+    if xs.is_null() || ys.is_null() || count == 0 {
+        return;
+    }
+    let xs = unsafe { std::slice::from_raw_parts(xs, count as usize) };
+    let ys = unsafe { std::slice::from_raw_parts(ys, count as usize) };
+    let points: Vec<(usize, usize)> = xs
+        .iter()
+        .zip(ys.iter())
+        .map(|(&x, &y)| (x as usize, y as usize))
+        .collect();
+    unsafe { doc(ptr) }
+        .lock()
+        .unwrap()
+        .draw_stroke(layer as usize, frame as usize, &points, color.into(), radius);
+}
+
+/// 4-way flood fill; returns the number of pixels changed.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_flood_fill(
+    ptr: *mut BixelDoc,
+    layer: u32,
+    frame: u32,
+    x: u32,
+    y: u32,
+    color: BixelColor,
+) -> u32 {
+    unsafe { doc(ptr) }
+        .lock()
+        .unwrap()
+        .flood_fill(layer as usize, frame as usize, x as usize, y as usize, color.into())
+        as u32
+}
+
+/// 4-way flood fill constrained to the half-open pixel rectangle
+/// `[min_x, max_x) × [min_y, max_y)`; returns the number of pixels changed.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_flood_fill_within(
+    ptr: *mut BixelDoc,
+    layer: u32,
+    frame: u32,
+    x: u32,
+    y: u32,
+    color: BixelColor,
+    min_x: u32,
+    min_y: u32,
+    max_x: u32,
+    max_y: u32,
+) -> u32 {
+    unsafe { doc(ptr) }
+        .lock()
+        .unwrap()
+        .flood_fill_within(
+            layer as usize,
+            frame as usize,
+            x as usize,
+            y as usize,
+            color.into(),
+            min_x as usize,
+            min_y as usize,
+            max_x as usize,
+            max_y as usize,
+        ) as u32
+}
+
+// ------------------------------------------------------------------ layers
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_layer_name(ptr: *const BixelDoc, idx: u32) -> *mut c_char {
+    let doc = unsafe { doc_ref(ptr) }.lock().unwrap();
+    let name = doc
+        .layers
+        .get(idx as usize)
+        .map(|l| l.name.clone())
+        .unwrap_or_default();
+    out_cstr(name)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_layer_visible(ptr: *const BixelDoc, idx: u32) -> bool {
+    unsafe { doc_ref(ptr) }
+        .lock()
+        .unwrap()
+        .layers
+        .get(idx as usize)
+        .map(|l| l.visible)
+        .unwrap_or(true)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_set_layer_visible(ptr: *mut BixelDoc, idx: u32, visible: bool) {
+    let mut doc = unsafe { doc(ptr) }.lock().unwrap();
+    if let Some(layer) = doc.layers.get_mut(idx as usize) {
+        layer.visible = visible;
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_remove_layer(ptr: *mut BixelDoc, idx: u32) {
+    unsafe { doc(ptr) }.lock().unwrap().remove_layer(idx as usize);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_rename_layer(ptr: *mut BixelDoc, idx: u32, name: *const c_char) {
+    let name = arg_str(name);
+    unsafe { doc(ptr) }
+        .lock()
+        .unwrap()
+        .rename_layer(idx as usize, &name);
+}
+
+/// Move a layer from one stack position to another (0 = bottom).
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_reorder_layer(ptr: *mut BixelDoc, from: u32, to: u32) {
+    unsafe { doc(ptr) }
+        .lock()
+        .unwrap()
+        .reorder_layer(from as usize, to as usize);
+}
+
+/// Layer opacity, 0.0..=1.0.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_layer_opacity(ptr: *const BixelDoc, idx: u32) -> f32 {
+    unsafe { doc_ref(ptr) }
+        .lock()
+        .unwrap()
+        .layers
+        .get(idx as usize)
+        .map(|l| l.opacity)
+        .unwrap_or(1.0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_set_layer_opacity(ptr: *mut BixelDoc, idx: u32, opacity: f32) {
+    if let Some(layer) = unsafe { doc(ptr) }.lock().unwrap().layers.get_mut(idx as usize) {
+        layer.opacity = opacity.clamp(0.0, 1.0);
+    }
+}
+
+/// Copy one cel's packed RGBA into `out` (`width * height * 4` bytes). Missing
+/// cels yield a fully transparent buffer.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_cel_rgba(ptr: *const BixelDoc, layer: u32, frame: u32, out: *mut u8) {
+    if out.is_null() {
+        return;
+    }
+    let doc = unsafe { doc_ref(ptr) }.lock().unwrap();
+    let len = doc.width * doc.height * 4;
+    let empty = vec![0u8; len];
+    let data: &[u8] = doc
+        .layers
+        .get(layer as usize)
+        .and_then(|l| l.cels.get(frame as usize))
+        .and_then(|c| c.as_ref())
+        .map(|c| c.data.as_slice())
+        .filter(|d| d.len() == len)
+        .unwrap_or(&empty);
+    unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), out, len) };
+}
+
+/// Frame duration in milliseconds.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_frame_duration(ptr: *const BixelDoc, idx: u32) -> u32 {
+    unsafe { doc_ref(ptr) }
+        .lock()
+        .unwrap()
+        .frames
+        .get(idx as usize)
+        .map(|f| f.duration_ms)
+        .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_set_frame_duration(ptr: *mut BixelDoc, idx: u32, duration_ms: u32) {
+    if let Some(frame) = unsafe { doc(ptr) }.lock().unwrap().frames.get_mut(idx as usize) {
+        frame.duration_ms = duration_ms.max(1);
+    }
+}
+
+// --------------------------------------------------------------- palette
+
+#[no_mangle]
+pub extern "C" fn bixel_hex_to_rgba(hex: *const c_char) -> BixelColor {
+    palette::hex_to_rgba(&arg_str(hex)).into()
+}
+
+#[no_mangle]
+pub extern "C" fn bixel_rgba_to_hex(color: BixelColor) -> *mut c_char {
+    out_cstr(Rgba::from(color).to_hex())
+}
+
+#[no_mangle]
+pub extern "C" fn bixel_nearest_color(hex: *const c_char, palette_kind: u32) -> BixelColor {
+    let color = palette::hex_to_rgba(&arg_str(hex));
+    let presets: &[&str] = match palette_kind {
+        1 => &palette::PICO8,
+        2 => &palette::GAMEBOY,
+        _ => &palette::DB32,
+    };
+    let parsed = palette::parse_palette(presets);
+    match palette::find_nearest_index(color, &parsed) {
+        Some(i) => parsed[i].into(),
+        None => color.into(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn bixel_palette_size(kind: u32) -> u32 {
+    match kind {
+        1 => palette::PICO8.len() as u32,
+        2 => palette::GAMEBOY.len() as u32,
+        _ => palette::DB32.len() as u32,
+    }
+}
+
+/// Fill `out` with the packed RGBA of the preset palette (kind as above).
+#[no_mangle]
+pub unsafe extern "C" fn bixel_palette_rgba(kind: u32, out: *mut u8) {
+    if out.is_null() {
+        return;
+    }
+    let presets: &[&str] = match kind {
+        1 => &palette::PICO8,
+        2 => &palette::GAMEBOY,
+        _ => &palette::DB32,
+    };
+    let parsed = palette::parse_palette(presets);
+    unsafe {
+        for (i, c) in parsed.iter().enumerate() {
+            *out.add(i * 4) = c.r;
+            *out.add(i * 4 + 1) = c.g;
+            *out.add(i * 4 + 2) = c.b;
+            *out.add(i * 4 + 3) = c.a;
+        }
+    }
+}
+
+// -------------------------------------------------------------- tile layer
+
+#[no_mangle]
+pub extern "C" fn bixel_tilelayer_new(width: u32, height: u32) -> *mut BixelTileLayer {
+    Box::into_raw(Box::new(Mutex::new(bixel_core::tilemap::TileLayer::new(
+        width as usize,
+        height as usize,
+    )))) as *mut BixelTileLayer
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_tilelayer_free(ptr: *mut BixelTileLayer) {
+    if !ptr.is_null() {
+        unsafe { drop(Box::from_raw(ptr as *mut RealTileLayer)) };
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_tilelayer_get(ptr: *const BixelTileLayer, x: i32, y: i32) -> u32 {
+    let l = unsafe { tilelayer_ref(ptr) }.lock().unwrap();
+    bixel_core::tilemap::get_tile(&l, x as isize, y as isize)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_tilelayer_set(
+    ptr: *mut BixelTileLayer,
+    x: i32,
+    y: i32,
+    raw: u32,
+) -> bool {
+    let mut l = unsafe { tilelayer(ptr) }.lock().unwrap();
+    bixel_core::tilemap::set_tile(&mut l, x as isize, y as isize, raw)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_tilelayer_flood(
+    ptr: *mut BixelTileLayer,
+    x: i32,
+    y: i32,
+    raw: u32,
+) -> u32 {
+    let mut l = unsafe { tilelayer(ptr) }.lock().unwrap();
+    bixel_core::tilemap::flood_fill(&mut l, x as isize, y as isize, raw).len() as u32
+}
+
+// --------------------------------------------------------------- timeline
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_timeline_new(ptr: *mut BixelDoc) -> *mut BixelTimeline {
+    let doc_handle = unsafe { Arc::clone(doc_ref(ptr)) };
+    Box::into_raw(Box::new(TimelineController::new(doc_handle))) as *mut BixelTimeline
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_timeline_free(ptr: *mut BixelTimeline) {
+    if !ptr.is_null() {
+        unsafe { drop(Box::from_raw(ptr as *mut RealTimeline)) };
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_timeline_update(ptr: *mut BixelTimeline, delta_ms: f32) -> u32 {
+    unsafe { timeline(ptr) }.update(delta_ms) as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_timeline_next(ptr: *mut BixelTimeline) -> u32 {
+    unsafe { timeline(ptr) }.next_frame() as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_timeline_prev(ptr: *mut BixelTimeline) -> u32 {
+    unsafe { timeline(ptr) }.prev_frame() as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_timeline_go_to(ptr: *mut BixelTimeline, frame: u32) -> u32 {
+    unsafe { timeline(ptr) }.go_to_frame(frame as usize) as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_timeline_set_fps(ptr: *mut BixelTimeline, fps: f32) {
+    unsafe { timeline(ptr) }.set_fps(fps, true);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_timeline_set_loop_mode(ptr: *mut BixelTimeline, mode: u32) {
+    let mode = match mode {
+        1 => "reverse",
+        2 => "ping-pong",
+        _ => "forward",
+    };
+    unsafe { timeline(ptr) }.set_loop_mode(mode);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_timeline_set_active_tag(
+    ptr: *mut BixelTimeline,
+    name: *const c_char,
+) {
+    let name = arg_str(name);
+    let tag = if name.is_empty() { None } else { Some(name) };
+    unsafe { timeline(ptr) }.set_active_tag(tag);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_timeline_play(ptr: *mut BixelTimeline) {
+    unsafe { timeline(ptr) }.play();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_timeline_pause(ptr: *mut BixelTimeline) {
+    unsafe { timeline(ptr) }.pause();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_timeline_current_frame(ptr: *const BixelTimeline) -> u32 {
+    unsafe { timeline_ref(ptr) }.current_frame() as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_timeline_loop_mode(ptr: *const BixelTimeline) -> u32 {
+    match unsafe { timeline_ref(ptr) }.loop_mode() {
+        LoopMode::Forward => 0,
+        LoopMode::Reverse => 1,
+        LoopMode::PingPong => 2,
+    }
+}
+
+// --------------------------------------------------------------------- AI
+
+use bixel_ai::native_stream::{NativeEvent, NativeRequest};
+use bixel_ai::{ConnectionConfig, GooseAgent, ModelReadiness};
+
+static AI_TURN: Mutex<()> = Mutex::new(());
+
+/// Reconfigurable holder for the shared agent (one per process). Replaces the
+/// old non-resettable `OnceLock`: connect/disconnect swap the connection
+/// underneath the agent; dropping it resets sessions too.
+struct AiState {
+    agent: Option<std::sync::Arc<GooseAgent>>,
+    last_error: Option<String>,
+}
+
+static AI_STATE: Mutex<AiState> = Mutex::new(AiState { agent: None, last_error: None });
+
+/// Connect (or reconnect) the shared agent with a new credential set.
+fn connect_agent(cfg: ConnectionConfig) -> Result<std::sync::Arc<GooseAgent>, String> {
+    let mut state = AI_STATE.lock().unwrap();
+    let agent = match &state.agent {
+        Some(agent) => agent.clone(),
+        None => {
+            let agent =
+                std::sync::Arc::new(GooseAgent::new().map_err(|e| e.to_string())?);
+            state.agent = Some(agent.clone());
+            agent
+        }
+    };
+    match agent.connect(cfg) {
+        Ok(_) => {
+            state.last_error = None;
+            Ok(agent)
+        }
+        Err(e) => {
+            let message = e.to_string();
+            state.last_error = Some(message.clone());
+            Err(message)
+        }
+    }
+}
+
+/// The shared agent, usable only after an explicit UI connect.
+fn ai_agent() -> Result<std::sync::Arc<GooseAgent>, String> {
+    let state = AI_STATE.lock().unwrap();
+    match &state.agent {
+        Some(agent) if agent.handle().is_some() => Ok(agent.clone()),
+        _ => Err("AI provider is not connected".to_string()),
+    }
+}
+
+/// Connection status as a JSON value. Credentials never appear here — only a
+/// masked `…last4` label. Until the UI connects, the models shown are the
+/// built-in defaults the next connect would use.
+fn connection_status_json() -> serde_json::Value {
+    let (connected_cfg, readiness, connected) = {
+        let state = AI_STATE.lock().unwrap();
+        match &state.agent {
+            Some(agent) if agent.handle().is_some() => {
+                let handle = agent.handle().unwrap();
+                (Some(handle.config.clone()), agent.readiness(), true)
+            }
+            _ => (None, None, false),
+        }
+    };
+    let active = connected_cfg.unwrap_or_default();
+    let readiness_json = |r: Option<&ModelReadiness>| {
+        serde_json::json!({
+            "text": r.map(|r| serde_json::to_value(&r.text).unwrap()),
+            "vision": r.map(|r| serde_json::to_value(&r.vision).unwrap()),
+            "image": r.map(|r| serde_json::to_value(&r.image).unwrap()),
+        })
+    };
+    let image_model = readiness
+        .as_ref()
+        .map(|r| r.image.model.clone())
+        .filter(|model| !model.is_empty())
+        .unwrap_or_else(|| active.models.image.clone());
+    let image_source = connected.then(|| match active.provider {
+        bixel_ai::ProviderChoice::ChatgptCodex => "codex_hosted",
+        bixel_ai::ProviderChoice::OpenRouter => "openrouter_model",
+    });
+    serde_json::json!({
+        "connected": connected,
+        "provider": active.provider.goose_name(),
+        "provider_label": active.provider.label(),
+        "key": active.masked_key(),
+        "models": {
+            "text": active.models.text,
+            "vision": active.models.vision,
+            "image": image_model,
+        },
+        "image_source": image_source,
+        "base_url": active.base_url,
+        "readiness": readiness_json(readiness.as_ref()),
+    })
+}
+
+/// Load a `.env` file into the process environment (`null`/empty = auto-detect).
+#[no_mangle]
+pub extern "C" fn bixel_ai_load_env(path: *const c_char) {
+    let path = arg_str(path);
+    let path = if path.is_empty() { None } else { Some(std::path::PathBuf::from(path)) };
+    bixel_core::config::load_env(path.as_deref(), false);
+}
+
+/// Connect the assistant through goose's provider API. `config_json` is a
+/// [`ConnectionConfig`] (provider, api_key, models, base_url); keys are
+/// write-only — they are stored in goose's secret store and never returned.
+/// Returns null on success or an owned error string.
+#[no_mangle]
+pub extern "C" fn bixel_ai_connect(config_json: *const c_char) -> *mut c_char {
+    let cfg: ConnectionConfig = match serde_json::from_str(&arg_str(config_json)) {
+        Ok(cfg) => cfg,
+        Err(e) => return out_cstr(format!("invalid connection config: {e}")),
+    };
+    match connect_agent(cfg) {
+        Ok(_) => std::ptr::null_mut(),
+        Err(e) => out_cstr(e),
+    }
+}
+
+/// Drop the cached provider, clear stored credentials, and forget sessions.
+#[no_mangle]
+pub extern "C" fn bixel_ai_disconnect() {
+    let mut state = AI_STATE.lock().unwrap();
+    if let Some(agent) = state.agent.take() {
+        let _ = agent.disconnect();
+    }
+    state.last_error = None;
+}
+
+/// Masked connection status + per-role model readiness. Free with
+/// [`bixel_string_free`]. Never contains a full credential.
+#[no_mangle]
+pub extern "C" fn bixel_ai_connection_status() -> *mut c_char {
+    out_cstr(connection_status_json().to_string())
+}
+
+/// Run the ChatGPT (Codex) browser sign-in (OAuth PKCE) ahead of `connect`.
+/// Returns null on success or an owned error string.
+#[no_mangle]
+pub extern "C" fn bixel_ai_start_codex_oauth() -> *mut c_char {
+    let result = (|| {
+        let agent = ai_agent().or_else(|_| {
+            let mut state = AI_STATE.lock().unwrap();
+            let agent = std::sync::Arc::new(
+                GooseAgent::new().map_err(|e| e.to_string())?,
+            );
+            state.agent = Some(agent.clone());
+            Ok::<_, String>(agent)
+        })?;
+        bixel_ai::connection::start_codex_oauth(agent.runtime()).map_err(|e| e.to_string())
+    })();
+    match result {
+        Ok(()) => std::ptr::null_mut(),
+        Err(e) => out_cstr(e),
+    }
+}
+
+/// Abort an in-flight ChatGPT sign-in so it can be retried immediately
+/// (goose otherwise holds its OAuth lock for the full callback timeout).
+#[no_mangle]
+pub extern "C" fn bixel_ai_cancel_codex_oauth() {
+    bixel_ai::connection::cancel_codex_oauth();
+}
+
+/// Register a host callback for opening external URLs (such as OAuth browser flows).
+#[no_mangle]
+pub extern "C" fn bixel_ai_set_open_url_callback(
+    callback: Option<extern "C" fn(*const c_char, *mut std::ffi::c_void)>,
+    context: *mut std::ffi::c_void,
+) {
+    bixel_ai::connection::set_open_url_callback(callback, context);
+}
+
+/// JSON object of selectable provider-scoped model options for `openrouter` or
+/// `chatgpt_codex`: `{"models": ["id", ...], "default": "id",
+/// "model_options": [{"id", "label", "capabilities"}]}`. OpenRouter
+/// requires a stored key. Free with [`bixel_string_free`].
+#[no_mangle]
+pub extern "C" fn bixel_ai_list_models(provider: *const c_char) -> *mut c_char {
+    let provider = match arg_str(provider).as_str() {
+        "chatgpt_codex" => bixel_ai::ProviderChoice::ChatgptCodex,
+        _ => bixel_ai::ProviderChoice::OpenRouter,
+    };
+    match bixel_ai::connection::list_models(provider) {
+        Ok(catalog) => {
+            let model_ids: Vec<&str> = catalog.models.iter().map(|model| model.id.as_str()).collect();
+            out_cstr(
+                serde_json::json!({
+                    // Keep the original Goose/FFI shape for existing clients.
+                    "models": model_ids,
+                    "default": catalog.default,
+                    // New clients use provider-scoped labels and capabilities.
+                    "model_options": catalog.models,
+                })
+                .to_string(),
+            )
+        }
+        Err(e) => out_cstr(
+            serde_json::json!({ "error": e.to_string() }).to_string(),
+        ),
+    }
+}
+
+/// Lightweight availability check: connected through the UI. Provider
+/// startup belongs on the worker thread.
+#[no_mangle]
+pub extern "C" fn bixel_ai_available() -> bool {
+    let state = AI_STATE.lock().unwrap();
+    matches!(&state.agent, Some(agent) if agent.handle().is_some())
+}
+
+/// JSON array of the available skills (id, name, description, params schema).
+#[no_mangle]
+pub extern "C" fn bixel_ai_list_skills() -> *mut c_char {
+    let specs = bixel_ai::skills::Skills::specs();
+    let json = serde_json::to_string(&specs).unwrap_or_else(|_| "[]".into());
+    out_cstr(json)
+}
+
+/// JSON array of installed skill slash-commands for `base` (the project or
+/// conversation workspace; may be null/empty for global skills only). Shape:
+/// `[{ "name", "description", "source", "input_hint" }]`.
+#[no_mangle]
+pub extern "C" fn bixel_ai_list_commands(base: *const c_char) -> *mut c_char {
+    bixel_ai::skill_install::ensure_bundled_installed();
+    let base = arg_str(base);
+    let dir = (!base.trim().is_empty()).then(|| std::path::PathBuf::from(base));
+    let commands = bixel_ai::commands::list_commands(dir.as_deref());
+    out_cstr(serde_json::to_string(&commands).unwrap_or_else(|_| "[]".into()))
+}
+
+/// Expand an invoked `/skill` into the loaded skill context via goose's own
+/// resolver. Returns an empty string when `name` is not an installed skill.
+#[no_mangle]
+pub extern "C" fn bixel_ai_resolve_command(
+    name: *const c_char,
+    args: *const c_char,
+    base: *const c_char,
+) -> *mut c_char {
+    bixel_ai::skill_install::ensure_bundled_installed();
+    let name = arg_str(name);
+    let args = arg_str(args);
+    let base = arg_str(base);
+    let dir = (!base.trim().is_empty()).then(|| std::path::PathBuf::from(base));
+    match bixel_ai::commands::resolve_command(&name, &args, dir.as_deref()) {
+        Ok(Some(content)) => out_cstr(content),
+        _ => out_cstr(String::new()),
+    }
+}
+
+/// JSON array of installed skills (bundled + user + project) with app-level
+/// enablement. `base` may be empty for global skills only. Shape:
+/// `[{ "id", "name", "description", "source", "path", "global", "enabled" }]`.
+#[no_mangle]
+pub extern "C" fn bixel_ai_list_installed_skills(base: *const c_char) -> *mut c_char {
+    bixel_ai::skill_install::ensure_bundled_installed();
+    let base = arg_str(base);
+    let dir = (!base.trim().is_empty()).then(|| std::path::PathBuf::from(base));
+    let skills = bixel_ai::settings::list_skills(dir.as_deref());
+    out_cstr(serde_json::to_string(&skills).unwrap_or_else(|_| "[]".into()))
+}
+
+/// Enable or disable an installed skill. Returns null on success or an owned
+/// error string.
+#[no_mangle]
+pub extern "C" fn bixel_ai_set_skill_enabled(
+    name: *const c_char,
+    enabled: bool,
+) -> *mut c_char {
+    match bixel_ai::settings::set_skill_enabled(&arg_str(name), enabled) {
+        Ok(()) => std::ptr::null_mut(),
+        Err(e) => out_cstr(e),
+    }
+}
+
+/// JSON array of configured MCP extensions (stdio / streamable_http / builtin /
+/// platform). Credential values never appear — only env variable names.
+#[no_mangle]
+pub extern "C" fn bixel_ai_list_mcp() -> *mut c_char {
+    match bixel_ai::settings::list_mcp() {
+        Ok(extensions) => {
+            out_cstr(serde_json::to_string(&extensions).unwrap_or_else(|_| "[]".into()))
+        }
+        Err(e) => out_cstr(serde_json::json!({ "error": e }).to_string()),
+    }
+}
+
+/// Create or update an MCP extension from a JSON [`McpSpec`]. Returns null on
+/// success or an owned error string.
+#[no_mangle]
+pub extern "C" fn bixel_ai_set_mcp(config_json: *const c_char) -> *mut c_char {
+    let spec: bixel_ai::settings::McpSpec = match serde_json::from_str(&arg_str(config_json)) {
+        Ok(spec) => spec,
+        Err(e) => return out_cstr(format!("invalid MCP config: {e}")),
+    };
+    match bixel_ai::settings::upsert_mcp(spec) {
+        Ok(_) => std::ptr::null_mut(),
+        Err(e) => out_cstr(e),
+    }
+}
+
+/// Remove an MCP extension by config key. Returns null on success or an owned
+/// error string.
+#[no_mangle]
+pub extern "C" fn bixel_ai_remove_mcp(key: *const c_char) -> *mut c_char {
+    match bixel_ai::settings::remove_mcp(&arg_str(key)) {
+        Ok(()) => std::ptr::null_mut(),
+        Err(e) => out_cstr(e),
+    }
+}
+
+/// Toggle an MCP extension. Returns false when no entry has that key.
+#[no_mangle]
+pub extern "C" fn bixel_ai_set_mcp_enabled(key: *const c_char, enabled: bool) -> bool {
+    bixel_ai::settings::set_mcp_enabled(&arg_str(key), enabled).unwrap_or(false)
+}
+
+/// JSON object of app/goose paths for the Settings → About pane.
+#[no_mangle]
+pub extern "C" fn bixel_ai_app_paths() -> *mut c_char {
+    out_cstr(serde_json::to_string(&bixel_ai::settings::app_paths()).unwrap_or_else(|_| "{}".into()))
+}
+
+const AI_SYSTEM_PROMPT: &str =
+    "You are Bixel, an AI assistant for a 2D design studio. Be concise and helpful.";
+
+/// Blocking text chat with the configured text model.
+///
+/// `system` may be null/empty to use a default studio prompt. Returns a
+/// `char*` (free with [`bixel_string_free`]), or null on error.
+#[no_mangle]
+pub extern "C" fn bixel_ai_chat(prompt: *const c_char, system: *const c_char) -> *mut c_char {
+    let prompt = arg_str(prompt);
+    if prompt.trim().is_empty() {
+        return std::ptr::null_mut();
+    }
+    let system = arg_str(system);
+    let system = if system.trim().is_empty() {
+        AI_SYSTEM_PROMPT.to_string()
+    } else {
+        system
+    };
+    let Ok(agent) = ai_agent() else { return std::ptr::null_mut(); };
+    let base = std::env::temp_dir().join("bixel-assistant");
+    let request = NativeRequest {
+        prompt,
+        system,
+        base: base.to_string_lossy().into_owned(),
+        images: vec![],
+    };
+    let mut text = String::new();
+    let result = agent.chat_stream(request, |event| {
+        if let NativeEvent::Text { delta, .. } = event {
+            text.push_str(&delta);
+        }
+        true
+    });
+    match result {
+        Ok(()) if !text.trim().is_empty() => out_cstr(text),
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Stream one agent turn. JSON event strings are borrowed for the callback duration.
+/// The callback runs synchronously on the calling thread; false requests cancellation.
+/// `context` remains owned by the caller and must live until this function returns.
+#[no_mangle]
+pub extern "C" fn bixel_ai_chat_stream(
+    request_json: *const c_char,
+    callback: Option<extern "C" fn(*const c_char, *mut std::ffi::c_void) -> bool>,
+    context: *mut std::ffi::c_void,
+) -> bool {
+    let Some(callback) = callback else { return false; };
+    let emit = |event: NativeEvent| {
+        let json = serde_json::to_string(&event).unwrap_or_default();
+        let Ok(value) = std::ffi::CString::new(json) else { return false; };
+        callback(value.as_ptr(), context)
+    };
+    let _turn = AI_TURN.lock().unwrap();
+    let result = (|| {
+        let request: NativeRequest = serde_json::from_str(&arg_str(request_json)).map_err(|e| e.to_string())?;
+        ai_agent()?.chat_stream(request, emit).map_err(|e| e.to_string())
+    })();
+    if let Err(message) = result {
+        emit(NativeEvent::Error { message });
+        return false;
+    }
+    true
+}
+
+/// Install the host editor bridge. The callback receives a JSON command
+/// envelope (`{"command":"read"|"apply",...}`) and must write a NUL-terminated
+/// JSON response (`{"ok":true,"data":...}` or `{"ok":false,"error":...}`) into
+/// the provided buffer, returning false on timeout/error/overflow.
+///
+/// The callback runs synchronously on the calling thread; the host owns
+/// `context` and must keep it alive until the bridge is cleared.
+#[no_mangle]
+pub extern "C" fn bixel_ai_set_editor_bridge(
+    callback: Option<
+        extern "C" fn(*const c_char, *mut c_char, usize, *mut std::ffi::c_void) -> bool,
+    >,
+    context: *mut std::ffi::c_void,
+) {
+    match callback {
+        Some(callback) => bixel_ai::editor_bridge::set(callback, context),
+        None => bixel_ai::editor_bridge::clear(),
+    }
+}
+
+/// Remove the host editor bridge. Editor tools then fail with a clear error
+/// until a host installs one again.
+#[no_mangle]
+pub extern "C" fn bixel_ai_clear_editor_bridge() {
+    bixel_ai::editor_bridge::clear();
+}
+
+/// True when a host editor bridge is installed (the agent can control the
+/// live editor).
+#[no_mangle]
+pub extern "C" fn bixel_ai_editor_bridge_available() -> bool {
+    bixel_ai::editor_bridge::is_installed()
+}
+
+/// Public model labels only, from the active connection (or the `.env`
+/// fallback). Credentials never cross this boundary.
+#[no_mangle]
+pub extern "C" fn bixel_ai_model_info() -> *mut c_char {
+    let status = connection_status_json();
+    out_cstr(serde_json::json!({
+        "text": status["models"]["text"],
+        "vision": status["models"]["vision"],
+        "image": status["models"]["image"],
+        "available": status["connected"].as_bool().unwrap_or(false)
+            || status["env_available"].as_bool().unwrap_or(false),
+    })
+    .to_string())
+}
+
+/// Forget the current chat conversation so the next `bixel_ai_chat` starts
+/// fresh with no prior context.
+#[no_mangle]
+pub extern "C" fn bixel_ai_chat_reset() {
+    if let Ok(agent) = ai_agent() {
+        agent.reset();
+    }
+}
+
+// -- buffer helpers (header-prefixed allocation, freed by bixel_ai_free_buffer)
+
+fn alloc_buffer(v: Vec<u8>) -> *mut u8 {
+    let mut buf = Vec::with_capacity(v.len() + 8);
+    buf.extend_from_slice(&(v.len() as u64).to_le_bytes());
+    buf.extend_from_slice(&v);
+    let mut boxed = buf.into_boxed_slice();
+    let data_ptr = unsafe { boxed.as_mut_ptr().add(8) };
+    std::mem::forget(boxed);
+    data_ptr
+}
+
+/// Write `out_len` (when non-null) and return a header-prefixed buffer.
+unsafe fn return_bytes(v: Vec<u8>, out_len: *mut u64) -> *mut u8 {
+    if !out_len.is_null() {
+        unsafe { *out_len = v.len() as u64 };
+    }
+    alloc_buffer(v)
+}
+
+/// Free a buffer returned by a `bixel_ai_*` function.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_ai_free_buffer(ptr: *mut u8) {
+    if ptr.is_null() {
+        return;
+    }
+    let base = ptr.sub(8);
+    let len = unsafe { *(base as *const u64) } as usize;
+    let slice = unsafe { std::slice::from_raw_parts_mut(base, len + 8) };
+    unsafe { drop(Box::from_raw(slice as *mut [u8])) };
+}
+
+// -- model-backed skills (blocking; return PNG bytes via the length out-param)
+
+/// The image-role client from the active connection, if the image role is ready.
+fn image_gen() -> Option<std::sync::Arc<dyn bixel_ai::image_gen::ImageGenerator>> {
+    ai_agent().ok().and_then(|agent| agent.image_gen())
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_ai_generate_art(
+    prompt: *const c_char,
+    out_len: *mut u64,
+) -> *mut u8 {
+    let prompt = arg_str(prompt);
+    let Some(gen) = image_gen() else { return std::ptr::null_mut() };
+    let input = bixel_ai::skills::SkillInput {
+        prompt,
+        image: None,
+        images: vec![],
+        params: serde_json::json!({}),
+    };
+    match bixel_ai::skills::Skills::run(
+        Some(gen.as_ref()),
+        bixel_ai::skills::SkillKind::GenerateArt,
+        input,
+    ) {
+        Ok(output) => match output.image.or(output.source_image) {
+            Some(img) => match bixel_ai::image::encode_png(&img) {
+                Ok(png) => unsafe { return_bytes(png, out_len) },
+                Err(_) => std::ptr::null_mut(),
+            },
+            None => std::ptr::null_mut(),
+        },
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_ai_next_frame(
+    png_in: *const u8,
+    in_len: u64,
+    prompt: *const c_char,
+    out_len: *mut u64,
+) -> *mut u8 {
+    if png_in.is_null() {
+        return std::ptr::null_mut();
+    }
+    let Some(gen) = image_gen() else { return std::ptr::null_mut() };
+    let bytes = unsafe { std::slice::from_raw_parts(png_in, in_len as usize) };
+    let Ok(current) = bixel_ai::image::decode_png(bytes) else {
+        return std::ptr::null_mut();
+    };
+    // Route through the skill so the image-to-image prompt, source-size pinning,
+    // and alpha policy stay identical to the `next_frame` tool path.
+    let action = arg_str(prompt);
+    let input = bixel_ai::skills::SkillInput {
+        prompt: action.clone(),
+        image: Some(current),
+        images: vec![],
+        params: serde_json::json!({ "action": action }),
+    };
+    match bixel_ai::skills::Skills::run(
+        Some(gen.as_ref()),
+        bixel_ai::skills::SkillKind::NextFrame,
+        input,
+    ) {
+        Ok(output) => match output.image.or(output.source_image) {
+            Some(img) => match bixel_ai::image::encode_png(&img) {
+                Ok(png) => unsafe { return_bytes(png, out_len) },
+                Err(_) => std::ptr::null_mut(),
+            },
+            None => std::ptr::null_mut(),
+        },
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+// -- deterministic skills (operate on caller RGBA buffers in place)
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_ai_compress_rgba(
+    data: *const u8,
+    width: u32,
+    height: u32,
+    bits: u8,
+    out: *mut u8,
+) {
+    if data.is_null() || out.is_null() {
+        return;
+    }
+    let (w, h) = (width as usize, height as usize);
+    let slice = unsafe { std::slice::from_raw_parts(data, w * h * 4) };
+    let img = bixel_ai::image::RgbaImage::from_rgba(w, h, slice.to_vec());
+    let result = bixel_ai::image::compress_to_bits(&img, bits);
+    unsafe { std::ptr::copy_nonoverlapping(result.data.as_ptr(), out, w * h * 4) };
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_ai_remove_bg_rgba(
+    data: *const u8,
+    width: u32,
+    height: u32,
+    tolerance: f32,
+    out: *mut u8,
+) {
+    if data.is_null() || out.is_null() {
+        return;
+    }
+    let (w, h) = (width as usize, height as usize);
+    let slice = unsafe { std::slice::from_raw_parts(data, w * h * 4) };
+    let img = bixel_ai::image::RgbaImage::from_rgba(w, h, slice.to_vec());
+    let result = bixel_ai::image::remove_background(&img, tolerance);
+    unsafe { std::ptr::copy_nonoverlapping(result.data.as_ptr(), out, w * h * 4) };
+}
+
+// -- generic skill runner (any registered skill, deterministic or model-backed)
+
+fn skill_input_from_ffi(
+    params: serde_json::Value,
+    image: Option<bixel_ai::image::RgbaImage>,
+) -> bixel_ai::skills::SkillInput {
+    let prompt = params
+        .get("prompt")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .to_string();
+    bixel_ai::skills::SkillInput {
+        prompt,
+        image,
+        images: vec![],
+        params,
+    }
+}
+
+/// Run any registered skill by id, passing optional input PNG bytes and a JSON
+/// params object. Returns a JSON string (free with [`bixel_string_free`]) of the
+/// shape `{ "text": "...", "image": "<base64 png>", "frames": ["<base64>", ...] }`,
+/// or `{"error": "..."}` on failure.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_ai_run_skill(
+    skill_id: *const c_char,
+    params_json: *const c_char,
+    png_in: *const u8,
+    in_len: u64,
+) -> *mut c_char {
+    let id = arg_str(skill_id);
+    let Some(kind) = bixel_ai::skills::SkillKind::from_id(&id) else {
+        return out_cstr(r#"{"error":"unknown skill"}"#.to_string());
+    };
+
+    let params: serde_json::Value = match serde_json::from_str(&arg_str(params_json)) {
+        Ok(v) => v,
+        Err(_) => serde_json::json!({}),
+    };
+
+    let image = if !png_in.is_null() && in_len > 0 {
+        let bytes = unsafe { std::slice::from_raw_parts(png_in, in_len as usize) };
+        bixel_ai::image::decode_any(&bytes).ok()
+    } else {
+        None
+    };
+
+    let input = skill_input_from_ffi(params, image);
+
+    // Deterministic skills need no engine; model-backed skills need the image
+    // role to be ready (otherwise the run fails naming the missing role).
+    let engine = if kind.is_deterministic() { None } else { image_gen() };
+    let output = bixel_ai::skills::Skills::run(engine.as_deref(), kind, input);
+    match output {
+        Ok(o) => out_cstr(bixel_ai::skills::skill_output_to_json(&o)),
+        Err(e) => out_cstr(format!(
+            r#"{{"error":{}}}"#,
+            serde_json::to_string(&e.to_string()).unwrap_or_else(|_| r#""skill failed""#.into())
+        )),
+    }
+}
+
+/// Host-owned filesystem operations. Returns {value:...} or {error:...}; free with bixel_string_free.
+#[no_mangle]
+pub extern "C" fn bixel_storage_request(base: *const c_char, request: *const c_char) -> *mut c_char {
+    let result = serde_json::from_str(&arg_str(request)).map_err(|e| e.to_string())
+        .and_then(|value| bixel_core::storage::request(std::path::Path::new(&arg_str(base)), &value));
+    out_cstr(match result {
+        Ok(value) => serde_json::json!({"value":value}),
+        Err(error) => serde_json::json!({"error":error}),
+    }.to_string())
+}
+
+/// Persist a complete document atomically under an explicit root, off the UI thread.
+/// Returns null on success or an owned error string.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_doc_save(ptr: *const BixelDoc, base: *const c_char, path: *const c_char) -> *mut c_char {
+    if ptr.is_null() { return out_cstr("Missing document".into()); }
+    // Clone under the document lock, then release it before serialization and disk I/O.
+    let snapshot = unsafe { doc_ref(ptr) }.lock().unwrap().persistence_copy();
+    let result = snapshot.to_json().and_then(|text| bixel_core::storage::write(std::path::Path::new(&arg_str(base)), &arg_str(path), text.as_bytes()));
+    match result { Ok(()) => std::ptr::null_mut(), Err(e) => out_cstr(e) }
+}
+
+/// Restore a validated layered document. Null signals malformed input.
+#[no_mangle]
+pub extern "C" fn bixel_doc_from_json(json: *const c_char) -> *mut BixelDoc {
+    match AsepriteDoc::from_json(&arg_str(json)) {
+        Ok(document) => Box::into_raw(Box::new(Arc::new(Mutex::new(document)))) as *mut BixelDoc,
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Write a caller-owned artifact buffer beneath the project root. Returns an owned error or null.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_storage_write(base: *const c_char, path: *const c_char, bytes: *const u8, len: u64) -> *mut c_char {
+    if bytes.is_null() || len > isize::MAX as u64 { return out_cstr("Invalid artifact buffer".into()); }
+    let data = unsafe { std::slice::from_raw_parts(bytes, len as usize) };
+    match bixel_core::storage::write(std::path::Path::new(&arg_str(base)), &arg_str(path), data) {
+        Ok(()) => std::ptr::null_mut(), Err(e) => out_cstr(e),
+    }
+}
+
+/// Bulk file read under the storage root (avoids the JSON byte-array round trip).
+/// Two-call pattern: call with `out` null to get the required length, then again
+/// with a buffer of that size. Returns bytes written, the required length when
+/// `out` is null/too small, `-2` when the file is missing, or `-1` on error.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_storage_read_bytes(
+    base: *const c_char,
+    path: *const c_char,
+    out: *mut u8,
+    out_len: u64,
+) -> i64 {
+    if out_len > isize::MAX as u64 {
+        return -1;
+    }
+    match bixel_core::storage::read_bytes(std::path::Path::new(&arg_str(base)), &arg_str(path)) {
+        Ok(Some(bytes)) => {
+            if out.is_null() || (out_len as usize) < bytes.len() {
+                return bytes.len() as i64;
+            }
+            unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out, bytes.len()) };
+            bytes.len() as i64
+        }
+        Ok(None) => -2,
+        Err(_) => -1,
+    }
+}
+
+// ------------------------------------------------------------------- sync
+//
+// Mac ↔ iPad project replication core: content-addressed manifests and the
+// three-way reconciliation plan. Pure JSON over the ABI; the network transport
+// and UI live in Swift. Regenerable caches are excluded from manifests and
+// conflicting files are never auto-merged (the caller preserves both copies).
+
+/// Scan a project directory into a content-addressed manifest. Returns
+/// `{value:<manifest>}` or `{error:...}`; free with `bixel_string_free`.
+#[no_mangle]
+pub extern "C" fn bixel_sync_manifest(
+    project_root: *const c_char,
+    project_id: *const c_char,
+) -> *mut c_char {
+    let root = std::path::PathBuf::from(arg_str(project_root));
+    let result = bixel_core::sync::scan_manifest(&root, &arg_str(project_id));
+    out_cstr(
+        match result {
+            Ok(manifest) => serde_json::json!({ "value": manifest }),
+            Err(error) => serde_json::json!({ "error": error }),
+        }
+        .to_string(),
+    )
+}
+
+/// Compute the reconciliation plan from `base` (null/empty for a first sync),
+/// `local`, and `remote` manifests. Returns `{value:<plan>}` or `{error:...}`.
+#[no_mangle]
+pub extern "C" fn bixel_sync_plan(
+    base_json: *const c_char,
+    local_json: *const c_char,
+    remote_json: *const c_char,
+) -> *mut c_char {
+    use bixel_core::sync::{plan, Manifest};
+    let parse = |text: String| -> Result<Manifest, String> {
+        serde_json::from_str(&text).map_err(|e| e.to_string())
+    };
+    let result = (|| {
+        let local = parse(arg_str(local_json))?;
+        let remote = parse(arg_str(remote_json))?;
+        let base_text = arg_str(base_json);
+        let base = if base_text.trim().is_empty() || base_text.trim() == "null" {
+            None
+        } else {
+            Some(parse(base_text)?)
+        };
+        Ok::<_, String>(plan(base.as_ref(), &local, &remote))
+    })();
+    out_cstr(
+        match result {
+            Ok(plan) => serde_json::json!({ "value": plan }),
+            Err(error) => serde_json::json!({ "error": error }),
+        }
+        .to_string(),
+    )
+}
+
+/// Atomically persist a manifest under the project root. Returns null on
+/// success or an owned error string.
+#[no_mangle]
+pub extern "C" fn bixel_sync_write_manifest(
+    project_root: *const c_char,
+    manifest_json: *const c_char,
+) -> *mut c_char {
+    let result =
+        serde_json::from_str::<bixel_core::sync::Manifest>(&arg_str(manifest_json))
+            .map_err(|e| e.to_string())
+            .and_then(|manifest| {
+                bixel_core::sync::write_manifest(
+                    std::path::Path::new(&arg_str(project_root)),
+                    &manifest,
+                )
+            });
+    match result {
+        Ok(()) => std::ptr::null_mut(),
+        Err(e) => out_cstr(e),
+    }
+}
+
+/// Conflict filename for a path (`documents/a.json` →
+/// `documents/a.conflict-ipad-42.json`). Returns an owned string.
+#[no_mangle]
+pub extern "C" fn bixel_sync_conflict_name(
+    path: *const c_char,
+    device: *const c_char,
+    timestamp: u64,
+) -> *mut c_char {
+    out_cstr(bixel_core::sync::conflict_name(
+        &arg_str(path),
+        &arg_str(device),
+        timestamp,
+    ))
+}
+
+/// Store bytes in the shared content-addressed blob store (idempotent).
+/// Returns `{value:"blake3:<hex>"}` or `{error:...}`.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_sync_store_blob(
+    projects_root: *const c_char,
+    bytes: *const u8,
+    len: u64,
+) -> *mut c_char {
+    if bytes.is_null() || len > isize::MAX as u64 {
+        return out_cstr(r#"{"error":"Invalid blob buffer"}"#.into());
+    }
+    let data = unsafe { std::slice::from_raw_parts(bytes, len as usize) };
+    let result = bixel_core::sync::store_blob(
+        std::path::Path::new(&arg_str(projects_root)),
+        data,
+    );
+    out_cstr(
+        match result {
+            Ok(hash) => serde_json::json!({ "value": hash }),
+            Err(error) => serde_json::json!({ "error": error }),
+        }
+        .to_string(),
+    )
+}
+
+/// Two-call blob read. Returns bytes written, the required length when `out` is
+/// null/too small, `-2` when the blob is missing, or `-1` on error.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_sync_read_blob(
+    projects_root: *const c_char,
+    hash: *const c_char,
+    out: *mut u8,
+    out_len: u64,
+) -> i64 {
+    if out_len > isize::MAX as u64 {
+        return -1;
+    }
+    match bixel_core::sync::read_blob(
+        std::path::Path::new(&arg_str(projects_root)),
+        &arg_str(hash),
+    ) {
+        Ok(Some(bytes)) => {
+            if out.is_null() || (out_len as usize) < bytes.len() {
+                return bytes.len() as i64;
+            }
+            unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), out, bytes.len()) };
+            bytes.len() as i64
+        }
+        Ok(None) => -2,
+        Err(_) => -1,
+    }
+}
+
+// ----------------------------------------------------------------- tile map
+//
+// The TileMap designer (`.map` documents are Tiled 1.10 JSON). Same contract
+// as `BixelDoc`: opaque `Arc<Mutex<TileMap>>`, bulk data via caller buffers,
+// strings freed with `bixel_string_free`.
+
+use bixel_core::map::{MapLayer, Orientation, Property, RenderOrder, StaggerAxis, StaggerIndex, TileMap};
+
+// ------------------------------------------------------------- lifecycle
+
+#[no_mangle]
+pub extern "C" fn bixel_map_new(width: u32, height: u32, tile_width: u32, tile_height: u32) -> *mut BixelMap {
+    let real = Arc::new(Mutex::new(TileMap::new(
+        width.max(1) as usize,
+        height.max(1) as usize,
+        tile_width.max(1) as usize,
+        tile_height.max(1) as usize,
+    )));
+    Box::into_raw(Box::new(real)) as *mut BixelMap
+}
+
+/// Create a Tiled infinite map: unbounded canvas, chunked serialization. The
+/// dense storage grows as content is painted.
+#[no_mangle]
+pub extern "C" fn bixel_map_new_infinite(tile_width: u32, tile_height: u32, orientation: u8) -> *mut BixelMap {
+    let orientation = match orientation {
+        1 => Orientation::Isometric,
+        2 => Orientation::Staggered,
+        _ => Orientation::Orthogonal,
+    };
+    let real = Arc::new(Mutex::new(TileMap::new_infinite(
+        tile_width.max(1) as usize,
+        tile_height.max(1) as usize,
+        orientation,
+    )));
+    Box::into_raw(Box::new(real)) as *mut BixelMap
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_is_infinite(ptr: *const BixelMap) -> bool {
+    unsafe { map_ref(ptr) }.lock().unwrap().infinite
+}
+
+/// World cell of dense storage `(0, 0)` (0 for finite maps).
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_origin_x(ptr: *const BixelMap) -> i32 {
+    unsafe { map_ref(ptr) }.lock().unwrap().origin_x
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_origin_y(ptr: *const BixelMap) -> i32 {
+    unsafe { map_ref(ptr) }.lock().unwrap().origin_y
+}
+
+/// Inclusive world-cell bounds of non-empty content. Returns false when empty.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_content_bounds(
+    ptr: *const BixelMap,
+    out_min_x: *mut i32,
+    out_min_y: *mut i32,
+    out_max_x: *mut i32,
+    out_max_y: *mut i32,
+) -> bool {
+    if out_min_x.is_null() || out_min_y.is_null() || out_max_x.is_null() || out_max_y.is_null() {
+        return false;
+    }
+    let map = unsafe { map_ref(ptr) }.lock().unwrap();
+    match map.content_cell_bounds() {
+        Some((a, b, c, d)) => {
+            unsafe {
+                *out_min_x = a;
+                *out_min_y = b;
+                *out_max_x = c;
+                *out_max_y = d;
+            }
+            true
+        }
+        None => false,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_free(ptr: *mut BixelMap) {
+    if !ptr.is_null() {
+        unsafe { drop(Box::from_raw(ptr as *mut RealMap)) };
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_from_json(json: *const c_char) -> *mut BixelMap {
+    match TileMap::from_tiled_json(&arg_str(json)) {
+        Ok(map) => Box::into_raw(Box::new(Arc::new(Mutex::new(map)))) as *mut BixelMap,
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Parse a Tiled JSON string and return the precise error message (or null when
+/// the map is valid). Lets the host explain *why* an imported map was rejected
+/// instead of showing a generic failure.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_validate_json(json: *const c_char) -> *mut c_char {
+    match TileMap::from_tiled_json(&arg_str(json)) {
+        Ok(_) => std::ptr::null_mut(),
+        Err(e) => out_cstr(e),
+    }
+}
+
+/// Persist the map atomically under an explicit root (mirrors `bixel_doc_save`).
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_save(ptr: *const BixelMap, base: *const c_char, path: *const c_char) -> *mut c_char {
+    if ptr.is_null() {
+        return out_cstr("Missing map".into());
+    }
+    let snapshot = unsafe { map_ref(ptr) }.lock().unwrap().clone();
+    let result = snapshot
+        .to_tiled_json()
+        .and_then(|text| bixel_core::storage::write(std::path::Path::new(&arg_str(base)), &arg_str(path), text.as_bytes()));
+    match result {
+        Ok(()) => std::ptr::null_mut(),
+        Err(e) => out_cstr(e),
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_to_json(ptr: *const BixelMap) -> *mut c_char {
+    let text = unsafe { map_ref(ptr) }.lock().unwrap().to_tiled_json().unwrap_or_default();
+    out_cstr(text)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_cell_width(ptr: *const BixelMap) -> u32 {
+    unsafe { map_ref(ptr) }.lock().unwrap().tile_width as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_cell_height(ptr: *const BixelMap) -> u32 {
+    unsafe { map_ref(ptr) }.lock().unwrap().tile_height as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_cell_count_x(ptr: *const BixelMap) -> u32 {
+    unsafe { map_ref(ptr) }.lock().unwrap().width as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_cell_count_y(ptr: *const BixelMap) -> u32 {
+    unsafe { map_ref(ptr) }.lock().unwrap().height as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_pixel_width(ptr: *const BixelMap) -> u32 {
+    unsafe { map_ref(ptr) }.lock().unwrap().pixel_width() as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_pixel_height(ptr: *const BixelMap) -> u32 {
+    unsafe { map_ref(ptr) }.lock().unwrap().pixel_height() as u32
+}
+
+// ------------------------------------------------------------ orientation
+
+/// Orientation code: 0 = orthogonal, 1 = isometric, 2 = staggered, 3 = hexagonal.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_orientation(ptr: *const BixelMap) -> u8 {
+    match unsafe { map_ref(ptr) }.lock().unwrap().orientation {
+        Orientation::Orthogonal => 0,
+        Orientation::Isometric => 1,
+        Orientation::Staggered => 2,
+        Orientation::Hexagonal => 3,
+    }
+}
+
+/// Only orthogonal (0), isometric (1) and staggered (2) are renderable; returns
+/// false for hexagonal (3) or an unknown code.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_set_orientation(ptr: *mut BixelMap, code: u8) -> bool {
+    let orientation = match code {
+        0 => Orientation::Orthogonal,
+        1 => Orientation::Isometric,
+        2 => Orientation::Staggered,
+        _ => return false,
+    };
+    unsafe { map(ptr) }.lock().unwrap().orientation = orientation;
+    true
+}
+
+/// Render order code: 0 = right-down, 1 = right-up, 2 = left-down, 3 = left-up.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_render_order(ptr: *const BixelMap) -> u8 {
+    match unsafe { map_ref(ptr) }.lock().unwrap().render_order {
+        RenderOrder::RightDown => 0,
+        RenderOrder::RightUp => 1,
+        RenderOrder::LeftDown => 2,
+        RenderOrder::LeftUp => 3,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_set_render_order(ptr: *mut BixelMap, code: u8) -> bool {
+    let order = match code {
+        0 => RenderOrder::RightDown,
+        1 => RenderOrder::RightUp,
+        2 => RenderOrder::LeftDown,
+        3 => RenderOrder::LeftUp,
+        _ => return false,
+    };
+    unsafe { map(ptr) }.lock().unwrap().render_order = order;
+    true
+}
+
+/// Stagger axis code: 0 = x, 1 = y.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_stagger_axis(ptr: *const BixelMap) -> u8 {
+    match unsafe { map_ref(ptr) }.lock().unwrap().stagger_axis {
+        StaggerAxis::X => 0,
+        StaggerAxis::Y => 1,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_set_stagger_axis(ptr: *mut BixelMap, code: u8) -> bool {
+    let axis = match code {
+        0 => StaggerAxis::X,
+        1 => StaggerAxis::Y,
+        _ => return false,
+    };
+    unsafe { map(ptr) }.lock().unwrap().stagger_axis = axis;
+    true
+}
+
+/// Stagger index code: 0 = odd, 1 = even.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_stagger_index(ptr: *const BixelMap) -> u8 {
+    match unsafe { map_ref(ptr) }.lock().unwrap().stagger_index {
+        StaggerIndex::Odd => 0,
+        StaggerIndex::Even => 1,
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_set_stagger_index(ptr: *mut BixelMap, code: u8) -> bool {
+    let index = match code {
+        0 => StaggerIndex::Odd,
+        1 => StaggerIndex::Even,
+        _ => return false,
+    };
+    unsafe { map(ptr) }.lock().unwrap().stagger_index = index;
+    true
+}
+
+/// Bulk geometry description for the host (orientation, render order, stagger
+/// settings and projected pixel bounds).
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_geometry_json(ptr: *const BixelMap) -> *mut c_char {
+    let map = unsafe { map_ref(ptr) }.lock().unwrap();
+    let value = serde_json::json!({
+        "orientation": map.orientation.as_tiled(),
+        "renderOrder": map.render_order.as_tiled(),
+        "staggerAxis": map.stagger_axis.as_tiled(),
+        "staggerIndex": map.stagger_index.as_tiled(),
+        "infinite": map.infinite,
+        "originX": map.origin_x,
+        "originY": map.origin_y,
+        "columns": map.width,
+        "rows": map.height,
+        "cellWidth": map.tile_width,
+        "cellHeight": map.tile_height,
+        "pixelWidth": map.pixel_width(),
+        "pixelHeight": map.pixel_height(),
+    });
+    out_cstr(value.to_string())
+}
+
+/// Top-left screen pixel of a cell's tile image (orientation-aware).
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_cell_origin(ptr: *const BixelMap, cx: i32, cy: i32, out_x: *mut i64, out_y: *mut i64) {
+    if out_x.is_null() || out_y.is_null() {
+        return;
+    }
+    let map = unsafe { map_ref(ptr) }.lock().unwrap();
+    let (x, y) = map.geometry().tile_origin(cx as i64, cy as i64);
+    unsafe {
+        *out_x = x;
+        *out_y = y;
+    }
+}
+
+/// Whole-map screen pixel -> integer cell. Returns false when the point is
+/// outside the map bounds (the raw cell is still written for clamping).
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_pixel_to_cell(
+    ptr: *const BixelMap,
+    px: f64,
+    py: f64,
+    out_cx: *mut i32,
+    out_cy: *mut i32,
+) -> bool {
+    if out_cx.is_null() || out_cy.is_null() {
+        return false;
+    }
+    let map = unsafe { map_ref(ptr) }.lock().unwrap();
+    let (cx, cy) = map.geometry().pixel_to_cell(px, py);
+    let inside = cx >= 0 && cy >= 0 && (cx as usize) < map.width && (cy as usize) < map.height;
+    unsafe {
+        *out_cx = cx as i32;
+        *out_cy = cy as i32;
+    }
+    inside
+}
+
+/// Set a tileset's draw offset (Tiled `tileoffset`) in pixels.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_set_tileset_tile_offset(ptr: *mut BixelMap, index: u32, x: i32, y: i32) -> bool {
+    unsafe { map(ptr) }.lock().unwrap().set_tileset_tile_offset(index as usize, x, y)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_tileset_tile_offset(ptr: *const BixelMap, index: u32, out_x: *mut i32, out_y: *mut i32) -> bool {
+    if out_x.is_null() || out_y.is_null() {
+        return false;
+    }
+    let map = unsafe { map_ref(ptr) }.lock().unwrap();
+    match map.tileset_tile_offset(index as usize) {
+        Some((x, y)) => {
+            unsafe {
+                *out_x = x;
+                *out_y = y;
+            }
+            true
+        }
+        None => false,
+    }
+}
+
+// ------------------------------------------------------------ tilesets
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_add_tileset(
+    ptr: *mut BixelMap,
+    name: *const c_char,
+    image_rel: *const c_char,
+    rgba: *const u8,
+    img_w: u32,
+    img_h: u32,
+    tw: u32,
+    th: u32,
+    margin: u32,
+    spacing: u32,
+) -> i32 {
+    let mut map = unsafe { map(ptr) }.lock().unwrap();
+    let name = arg_str(name);
+    let image = arg_str(image_rel);
+    let index = match map.add_tileset(&name, &image, img_w, img_h, tw, th, margin, spacing) {
+        Ok(i) => i,
+        Err(_) => return -1,
+    };
+    if !rgba.is_null() {
+        let len = img_w as usize * img_h as usize * 4;
+        let pixels = unsafe { std::slice::from_raw_parts(rgba, len) };
+        map.set_tileset_pixels(index, pixels);
+    }
+    index as i32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_remove_tileset(ptr: *mut BixelMap, index: u32) -> bool {
+    unsafe { map(ptr) }.lock().unwrap().remove_tileset(index as usize)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_tileset_count(ptr: *const BixelMap) -> u32 {
+    unsafe { map_ref(ptr) }.lock().unwrap().tilesets.len() as u32
+}
+
+/// JSON array describing every tileset (index, first_gid, geometry, image rel).
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_tilesets_json(ptr: *const BixelMap) -> *mut c_char {
+    let map = unsafe { map_ref(ptr) }.lock().unwrap();
+    let list: Vec<serde_json::Value> = map
+        .tilesets
+        .iter()
+        .enumerate()
+        .map(|(i, ts)| {
+            serde_json::json!({
+                "index": i,
+                "firstGid": ts.first_gid,
+                "name": ts.name,
+                "image": ts.image,
+                "imageWidth": ts.image_width,
+                "imageHeight": ts.image_height,
+                "tileWidth": ts.tile_width,
+                "tileHeight": ts.tile_height,
+                "margin": ts.margin,
+                "spacing": ts.spacing,
+                "columns": ts.columns,
+                "tileCount": ts.tile_count,
+                "tileOffsetX": ts.tile_offset.0,
+                "tileOffsetY": ts.tile_offset.1,
+            })
+        })
+        .collect();
+    out_cstr(serde_json::to_string(&list).unwrap_or_else(|_| "[]".into()))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_set_tileset_pixels(ptr: *mut BixelMap, index: u32, rgba: *const u8, len: usize) -> bool {
+    if rgba.is_null() {
+        return false;
+    }
+    let pixels = unsafe { std::slice::from_raw_parts(rgba, len) };
+    unsafe { map(ptr) }.lock().unwrap().set_tileset_pixels(index as usize, pixels)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_tileset_pixels(ptr: *const BixelMap, index: u32, out: *mut u8, out_len: usize) -> bool {
+    if out.is_null() {
+        return false;
+    }
+    let mut buf = vec![0u8; out_len];
+    let ok = unsafe { map_ref(ptr) }.lock().unwrap().tileset_pixels(index as usize, &mut buf);
+    if ok {
+        unsafe { std::ptr::copy_nonoverlapping(buf.as_ptr(), out, buf.len()) };
+    }
+    ok
+}
+
+/// `local` of -1 clears the autotile slot for `mask`.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_set_autotile(ptr: *mut BixelMap, tileset: u32, mask: u8, local: i32) -> bool {
+    let local = if local < 0 { None } else { Some(local as u32) };
+    unsafe { map(ptr) }.lock().unwrap().set_autotile(tileset as usize, mask, local)
+}
+
+/// Fill `out` with the 16 autotile slots as `i64` local tile ids (-1 = empty).
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_autotile_slots(ptr: *const BixelMap, tileset: u32, out: *mut i64, out_len: usize) -> u32 {
+    if out.is_null() || out_len == 0 {
+        return 0;
+    }
+    let slots = unsafe { map_ref(ptr) }.lock().unwrap().autotile_slots(tileset as usize);
+    for (i, slot) in slots.iter().enumerate().take(out_len) {
+        unsafe {
+            *out.add(i) = slot.map(i64::from).unwrap_or(-1);
+        }
+    }
+    slots.len() as u32
+}
+
+/// Re-resolve a painted region's borders; returns changed cell count.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_autotile(ptr: *mut BixelMap, layer: u32, tileset: u32, x: i32, y: i32, w: u32, h: u32) -> u32 {
+    unsafe { map(ptr) }
+        .lock()
+        .unwrap()
+        .autotile(layer as usize, tileset as usize, x as isize, y as isize, w as usize, h as usize) as u32
+}
+
+// ------------------------------------------------------------- layers
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_layer_count(ptr: *const BixelMap) -> u32 {
+    unsafe { map_ref(ptr) }.lock().unwrap().layers.len() as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_add_layer(ptr: *mut BixelMap, name: *const c_char) -> u32 {
+    let name = arg_str(name);
+    let name = if name.is_empty() { None } else { Some(name.as_str()) };
+    unsafe { map(ptr) }.lock().unwrap().add_tile_layer(name) as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_add_object_layer(ptr: *mut BixelMap, name: *const c_char) -> u32 {
+    let name = arg_str(name);
+    let name = if name.is_empty() { None } else { Some(name.as_str()) };
+    unsafe { map(ptr) }.lock().unwrap().add_object_layer(name) as u32
+}
+
+/// Add an image layer at pixel offset `(x, y)`. When `rgba` is non-null it must
+/// hold `img_w * img_h * 4` bytes; otherwise upload them later with
+/// `bixel_map_set_image_layer_pixels`.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_add_image_layer(
+    ptr: *mut BixelMap,
+    name: *const c_char,
+    image: *const c_char,
+    x: f64,
+    y: f64,
+    img_w: u32,
+    img_h: u32,
+    rgba: *const u8,
+    len: usize,
+) -> i32 {
+    let mut map = unsafe { map(ptr) }.lock().unwrap();
+    let name = arg_str(name);
+    let image = arg_str(image);
+    let name = if name.is_empty() { None } else { Some(name.as_str()) };
+    let index = map.add_image_layer(name, &image, img_w, img_h, x, y);
+    if !rgba.is_null() && len > 0 {
+        let pixels = unsafe { std::slice::from_raw_parts(rgba, len) };
+        map.set_image_layer_pixels(index, pixels);
+    }
+    index as i32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_set_image_layer_pixels(
+    ptr: *mut BixelMap,
+    index: u32,
+    rgba: *const u8,
+    len: usize,
+) -> bool {
+    if rgba.is_null() {
+        return false;
+    }
+    let pixels = unsafe { std::slice::from_raw_parts(rgba, len) };
+    unsafe { map(ptr) }.lock().unwrap().set_image_layer_pixels(index as usize, pixels)
+}
+
+/// Move and/or resize an image layer in map pixels. The source pixels remain
+/// unchanged and the core uses nearest-neighbour sampling while compositing.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_set_image_layer_transform(
+    ptr: *mut BixelMap,
+    index: u32,
+    x: f64,
+    y: f64,
+    display_width: u32,
+    display_height: u32,
+) -> bool {
+    unsafe { map(ptr) }.lock().unwrap().set_image_layer_transform(
+        index as usize,
+        x,
+        y,
+        display_width,
+        display_height,
+    )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_image_layer_pixels(
+    ptr: *const BixelMap,
+    index: u32,
+    out: *mut u8,
+    out_len: usize,
+) -> bool {
+    if out.is_null() {
+        return false;
+    }
+    let mut buf = vec![0u8; out_len];
+    let ok = unsafe { map_ref(ptr) }.lock().unwrap().image_layer_pixels(index as usize, &mut buf);
+    if ok {
+        unsafe { std::ptr::copy_nonoverlapping(buf.as_ptr(), out, buf.len()) };
+    }
+    ok
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_remove_layer(ptr: *mut BixelMap, index: u32) -> bool {
+    unsafe { map(ptr) }.lock().unwrap().remove_layer(index as usize)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_rename_layer(ptr: *mut BixelMap, index: u32, name: *const c_char) -> bool {
+    let name = arg_str(name);
+    unsafe { map(ptr) }.lock().unwrap().rename_layer(index as usize, &name)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_reorder_layer(ptr: *mut BixelMap, from: u32, to: u32) -> bool {
+    unsafe { map(ptr) }
+        .lock()
+        .unwrap()
+        .reorder_layer(from as usize, to as usize)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_set_layer_visible(ptr: *mut BixelMap, index: u32, visible: bool) {
+    if let Some(layer) = unsafe { map(ptr) }.lock().unwrap().layers.get_mut(index as usize) {
+        layer.set_visible(visible);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_set_layer_opacity(ptr: *mut BixelMap, index: u32, opacity: f32) {
+    if let Some(layer) = unsafe { map(ptr) }.lock().unwrap().layers.get_mut(index as usize) {
+        layer.set_opacity(opacity);
+    }
+}
+
+/// One bulk call describing every layer for the layers panel.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_layers_json(ptr: *const BixelMap) -> *mut c_char {
+    let map = unsafe { map_ref(ptr) }.lock().unwrap();
+    let list: Vec<serde_json::Value> = map
+        .layers
+        .iter()
+        .enumerate()
+        .map(|(index, layer)| {
+            let mut base = serde_json::json!({
+                "index": index,
+                "id": layer.id(),
+                "name": layer.name(),
+                "visible": layer.visible(),
+                "opacity": layer.opacity(),
+                "type": match layer {
+                    MapLayer::Objects(_) => "object",
+                    MapLayer::Image(_) => "image",
+                    MapLayer::Tile(_) => "tile",
+                },
+            });
+            match layer {
+                MapLayer::Tile(data) => {
+                    base["width"] = serde_json::json!(data.layer.width);
+                    base["height"] = serde_json::json!(data.layer.height);
+                }
+                MapLayer::Objects(data) => {
+                    base["objectCount"] = serde_json::json!(data.objects.len());
+                }
+                MapLayer::Image(data) => {
+                    base["image"] = serde_json::json!(data.image);
+                    base["imageWidth"] = serde_json::json!(data.image_width);
+                    base["imageHeight"] = serde_json::json!(data.image_height);
+                    base["displayWidth"] = serde_json::json!(data.display_width);
+                    base["displayHeight"] = serde_json::json!(data.display_height);
+                    base["x"] = serde_json::json!(data.x);
+                    base["y"] = serde_json::json!(data.y);
+                }
+            }
+            base
+        })
+        .collect();
+    out_cstr(serde_json::to_string(&list).unwrap_or_else(|_| "[]".into()))
+}
+
+// ------------------------------------------------------- editing (tiles)
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_set_tile(ptr: *mut BixelMap, layer: u32, x: i32, y: i32, gid: u32) -> bool {
+    unsafe { map(ptr) }
+        .lock()
+        .unwrap()
+        .set_tile(layer as usize, x as isize, y as isize, gid)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_get_tile(ptr: *const BixelMap, layer: u32, x: i32, y: i32) -> u32 {
+    unsafe { map_ref(ptr) }
+        .lock()
+        .unwrap()
+        .get_tile(layer as usize, x as isize, y as isize)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_stamp(
+    ptr: *mut BixelMap,
+    layer: u32,
+    x: i32,
+    y: i32,
+    gids: *const u32,
+    w: u32,
+    h: u32,
+    skip_empty: bool,
+) -> u32 {
+    if gids.is_null() || w == 0 || h == 0 {
+        return 0;
+    }
+    let tiles = unsafe { std::slice::from_raw_parts(gids, w as usize * h as usize) };
+    let pattern = bixel_core::tilemap::Pattern {
+        w: w as usize,
+        h: h as usize,
+        tiles: tiles.to_vec(),
+    };
+    unsafe { map(ptr) }
+        .lock()
+        .unwrap()
+        .stamp(layer as usize, x as isize, y as isize, &pattern, skip_empty) as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_fill(ptr: *mut BixelMap, layer: u32, x: i32, y: i32, gid: u32) -> u32 {
+    unsafe { map(ptr) }
+        .lock()
+        .unwrap()
+        .fill(layer as usize, x as isize, y as isize, gid) as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_paint_rect(
+    ptr: *mut BixelMap, layer: u32, x0: i32, y0: i32, x1: i32, y1: i32, gid: u32,
+) -> u32 {
+    unsafe { map(ptr) }
+        .lock()
+        .unwrap()
+        .paint_rect(layer as usize, x0 as isize, y0 as isize, x1 as isize, y1 as isize, gid) as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_paint_line(
+    ptr: *mut BixelMap, layer: u32, x0: i32, y0: i32, x1: i32, y1: i32, gid: u32,
+) -> u32 {
+    unsafe { map(ptr) }
+        .lock()
+        .unwrap()
+        .paint_line(layer as usize, x0 as isize, y0 as isize, x1 as isize, y1 as isize, gid) as u32
+}
+
+/// Copy a region into a caller-owned `w*h` u32 buffer; returns tiles written.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_read_region(
+    ptr: *const BixelMap,
+    layer: u32,
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+    out: *mut u32,
+) -> u32 {
+    if out.is_null() || w == 0 || h == 0 {
+        return 0;
+    }
+    let pattern = unsafe { map_ref(ptr) }
+        .lock()
+        .unwrap()
+        .read_region(layer as usize, x as isize, y as isize, w as usize, h as usize);
+    let count = pattern.w * pattern.h;
+    if count > 0 {
+        unsafe { std::ptr::copy_nonoverlapping(pattern.tiles.as_ptr(), out, count) };
+    }
+    count as u32
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_replace(
+    ptr: *mut BixelMap, layer: u32, x: i32, y: i32, w: u32, h: u32, from: u32, to: u32,
+) -> u32 {
+    unsafe { map(ptr) }
+        .lock()
+        .unwrap()
+        .replace(layer as usize, x as isize, y as isize, w as usize, h as usize, from, to) as u32
+}
+
+/// Magic-wand same-tile mask into a caller-owned `width*height` byte buffer.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_wand_mask(
+    ptr: *const BixelMap, layer: u32, x: i32, y: i32, out: *mut u8, out_len: usize,
+) -> u32 {
+    if out.is_null() {
+        return 0;
+    }
+    let mut mask = vec![0u8; out_len];
+    let count = unsafe { map_ref(ptr) }
+        .lock()
+        .unwrap()
+        .wand_mask(layer as usize, x as isize, y as isize, &mut mask);
+    if count > 0 {
+        unsafe { std::ptr::copy_nonoverlapping(mask.as_ptr(), out, mask.len()) };
+    }
+    count as u32
+}
+
+// ------------------------------------------------------- editing (objects)
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_add_object(
+    ptr: *mut BixelMap, layer: u32, name: *const c_char, kind: *const c_char,
+    x: f64, y: f64, w: f64, h: f64,
+) -> i64 {
+    let name = arg_str(name);
+    let kind = arg_str(kind);
+    unsafe { map(ptr) }
+        .lock()
+        .unwrap()
+        .add_object(layer as usize, &name, &kind, x, y, w, h)
+        .map(i64::from)
+        .unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_remove_object(ptr: *mut BixelMap, layer: u32, object_id: u32) -> bool {
+    unsafe { map(ptr) }
+        .lock()
+        .unwrap()
+        .remove_object(layer as usize, object_id)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_set_object(
+    ptr: *mut BixelMap, layer: u32, object_id: u32, name: *const c_char, kind: *const c_char,
+    x: f64, y: f64, w: f64, h: f64,
+) -> bool {
+    let name = arg_str(name);
+    let kind = arg_str(kind);
+    unsafe { map(ptr) }
+        .lock()
+        .unwrap()
+        .set_object(layer as usize, object_id, &name, &kind, x, y, w, h)
+}
+
+/// JSON array of an object layer's objects.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_objects_json(ptr: *const BixelMap, layer: u32) -> *mut c_char {
+    let map = unsafe { map_ref(ptr) }.lock().unwrap();
+    let list: Vec<serde_json::Value> = map
+        .object_layer(layer as usize)
+        .map(|l| {
+            l.objects
+                .iter()
+                .map(|o| {
+                    serde_json::json!({
+                        "id": o.id,
+                        "name": o.name,
+                        "type": o.kind,
+                        "x": o.x,
+                        "y": o.y,
+                        "width": o.width,
+                        "height": o.height,
+                        "visible": o.visible,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    out_cstr(serde_json::to_string(&list).unwrap_or_else(|_| "[]".into()))
+}
+
+// ------------------------------------------------------------ properties
+
+fn props_json(props: &[Property]) -> serde_json::Value {
+    serde_json::Value::Array(
+        props
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "name": p.name,
+                    "type": if p.kind.is_empty() { "string".to_string() } else { p.kind.clone() },
+                    "value": p.value.clone(),
+                })
+            })
+            .collect(),
+    )
+}
+
+fn props_from_value(value: Option<&serde_json::Value>) -> Vec<Property> {
+    let mut out = Vec::new();
+    if let Some(arr) = value.and_then(serde_json::Value::as_array) {
+        for p in arr {
+            let name = p.get("name").and_then(serde_json::Value::as_str).unwrap_or("").to_string();
+            if name.is_empty() {
+                continue;
+            }
+            let kind = p.get("type").and_then(serde_json::Value::as_str).unwrap_or("string").to_string();
+            let value = p.get("value").cloned().unwrap_or(serde_json::Value::Null);
+            out.push(Property { name, kind, value });
+        }
+    }
+    out
+}
+
+/// target: 0 = map, 1 = layer, 2 = object. `layer`/`object_id` ignored when unused.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_set_properties(
+    ptr: *mut BixelMap,
+    target: u8,
+    layer: i32,
+    object_id: i64,
+    props: *const c_char,
+) -> bool {
+    let value: serde_json::Value = match serde_json::from_str(&arg_str(props)) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let props = props_from_value(Some(&value));
+    let layer = if layer >= 0 { Some(layer as usize) } else { None };
+    let object_id = if object_id >= 0 { Some(object_id as u32) } else { None };
+    unsafe { map(ptr) }
+        .lock()
+        .unwrap()
+        .set_properties(target, layer, object_id, props)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_properties_json(ptr: *const BixelMap, target: u8, layer: i32, object_id: i64) -> *mut c_char {
+    let map = unsafe { map_ref(ptr) }.lock().unwrap();
+    let props: Vec<Property> = match target {
+        0 => map.map_properties().to_vec(),
+        1 if layer >= 0 => map.layer_properties(layer as usize).unwrap_or(&[]).to_vec(),
+        2 if layer >= 0 && object_id >= 0 => {
+            map.object_properties(layer as usize, object_id as u32).unwrap_or(&[]).to_vec()
+        }
+        _ => Vec::new(),
+    };
+    out_cstr(serde_json::to_string(&props_json(&props)).unwrap_or_else(|_| "[]".into()))
+}
+
+// -------------------------------------------------------------- resize
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_resize(ptr: *mut BixelMap, width: u32, height: u32) {
+    unsafe { map(ptr) }
+        .lock()
+        .unwrap()
+        .resize(width.max(1) as usize, height.max(1) as usize);
+}
+
+// ------------------------------------------------------------- history
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_snapshot(ptr: *mut BixelMap) {
+    unsafe { map(ptr) }.lock().unwrap().snapshot();
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_undo(ptr: *mut BixelMap) -> bool {
+    unsafe { map(ptr) }.lock().unwrap().undo()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_redo(ptr: *mut BixelMap) -> bool {
+    unsafe { map(ptr) }.lock().unwrap().redo()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_can_undo(ptr: *const BixelMap) -> bool {
+    unsafe { map_ref(ptr) }.lock().unwrap().can_undo()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_can_redo(ptr: *const BixelMap) -> bool {
+    unsafe { map_ref(ptr) }.lock().unwrap().can_redo()
+}
+
+// ------------------------------------------------------- render / export
+
+/// Composite the visible tile layers into a caller-owned RGBA buffer of
+/// `pixel_width * pixel_height * 4` bytes.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_composite(ptr: *const BixelMap, out: *mut u8, out_len: usize) -> bool {
+    if out.is_null() {
+        return false;
+    }
+    let map = unsafe { map_ref(ptr) }.lock().unwrap();
+    let buf = map.composite();
+    if buf.len() > out_len || buf.is_empty() {
+        return false;
+    }
+    unsafe { std::ptr::copy_nonoverlapping(buf.as_ptr(), out, buf.len()) };
+    true
+}
+
+/// Composite only the world-pixel region `(x, y, w, h)` into a caller-owned
+/// RGBA buffer of `w * h * 4` bytes. Infinite maps use this to render just the
+/// visible viewport. Coordinates may be negative.
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_composite_region(
+    ptr: *const BixelMap,
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+    out: *mut u8,
+    out_len: usize,
+) -> bool {
+    if out.is_null() || w == 0 || h == 0 {
+        return false;
+    }
+    let expected = w as usize * h as usize * 4;
+    if out_len < expected {
+        return false;
+    }
+    let map = unsafe { map_ref(ptr) }.lock().unwrap();
+    let buf = map.composite_region(x as i64, y as i64, w as usize, h as usize);
+    if buf.len() != expected {
+        return false;
+    }
+    unsafe { std::ptr::copy_nonoverlapping(buf.as_ptr(), out, buf.len()) };
+    true
+}
+#[no_mangle]
+pub unsafe extern "C" fn bixel_map_layer_csv(ptr: *const BixelMap, layer: u32) -> *mut c_char {
+    let csv = unsafe { map_ref(ptr) }.lock().unwrap().layer_to_csv(layer as usize);
+    out_cstr(csv)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skill_runner_keeps_prompt_in_skill_input() {
+        let input = skill_input_from_ffi(
+            serde_json::json!({"prompt": "a fox under moonlight", "transparent": false}),
+            None,
+        );
+        assert_eq!(input.prompt, "a fox under moonlight");
+        assert_eq!(input.params["transparent"], false);
+    }
+
+    /// The status JSON must expose model roles and per-role readiness shapes
+    /// and must never contain a full API key.
+    #[test]
+    fn connection_status_json_never_returns_secrets() {
+        let value = connection_status_json();
+        let text = value.to_string();
+        assert!(!text.contains("sk-or-"), "status leaked an API key: {text}");
+        assert!(value["key"].is_null());
+        assert_eq!(value["provider"], "openrouter");
+        for role in ["text", "vision", "image"] {
+            assert!(value["models"][role].is_string(), "missing model role {role}");
+            assert!(value["readiness"][role].is_null(), "unexpected readiness while offline");
+        }
+        assert_eq!(value["connected"], false);
+        assert!(value["image_source"].is_null());
+    }
+
+    /// Masking must show only the last 4 characters of a key.
+    #[test]
+    fn masked_key_shows_last4_only() {
+        let cfg = ConnectionConfig {
+            provider: bixel_ai::ProviderChoice::OpenRouter,
+            api_key: Some("sk-or-testsecret9876".into()),
+            ..Default::default()
+        };
+        assert_eq!(cfg.masked_key().as_deref(), Some("…9876"));
+        let json = connection_status_json().to_string();
+        assert!(!json.contains("sk-or-testsecret9876"));
+    }
+
+    #[test]
+    fn connection_status_masks_codex_image_key_as_absent() {
+        // Codex OAuth has no primary key to mask; the secondary image key is
+        // write-only and must not appear either.
+        let mut cfg = ConnectionConfig {
+            provider: bixel_ai::ProviderChoice::ChatgptCodex,
+            api_key: None,
+            image_api_key: Some("sk-or-secondary4321".into()),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(json.contains("sk-or-secondary4321"), "config round-trips locally");
+        cfg.validate = false;
+        assert!(cfg.masked_key().is_none());
+    }
+}

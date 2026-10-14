@@ -1,0 +1,784 @@
+/* ==========================================================================
+   Bixel Studio — Procreate Ultra-Modern Design System
+   Inspired directly by procreate.com (OLED pitch black, Bento tiles, Apple typography)
+   ========================================================================== */
+
+:root {
+  --bg-black: #000000;
+  --bg-surface-1: #0d0d0f;
+  --bg-surface-2: #141418;
+  --bg-surface-3: #1a1a22;
+  --bg-glass: rgba(18, 18, 24, 0.65);
+  
+  --text-white: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.72);
+  --text-tertiary: rgba(255, 255, 255, 0.45);
+  --text-muted: rgba(255, 255, 255, 0.3);
+
+  --accent-slime-vibrant: #22c55e;
+  --accent-slime-neon: #00f59b;
+  --accent-slime-mint: #86efac;
+  --accent-slime-glow: rgba(34, 197, 94, 0.22);
+  --accent-green: #22c55e;
+  --accent-cyan: #00f59b;
+  
+  --border-hairline: rgba(255, 255, 255, 0.1);
+  --border-focus: rgba(34, 197, 94, 0.4);
+  --border-accent: rgba(34, 197, 94, 0.4);
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-pill: 9999px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  background-color: var(--bg-black);
+  color: var(--text-white);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--bg-black);
+  color: var(--text-white);
+  overflow-x: hidden;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+/* ==========================================================================
+   Navigation: Floating Glass Pill (Procreate Style)
+   ========================================================================== */
+.site-nav-wrapper {
+  position: fixed;
+  top: 20px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  z-index: 1000;
+  padding: 0 24px;
+  pointer-events: none;
+}
+
+.site-nav {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+  background: rgba(16, 16, 20, 0.75);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid var(--border-hairline);
+  padding: 8px 12px 8px 20px;
+  border-radius: var(--radius-pill);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  max-width: 980px;
+  width: 100%;
+  transition: all 0.3s ease;
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+
+.nav-brand-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-slime-img {
+  width: 28px;
+  height: 28px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 10px rgba(34, 197, 94, 0.45));
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.brand-group:hover .brand-slime-img {
+  transform: scale(1.18) rotate(-6deg);
+}
+
+.nav-items {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  list-style: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.nav-items a:hover {
+  color: var(--text-white);
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ==========================================================================
+   Buttons (Procreate Style: Clean, Pill, Tactile)
+   ========================================================================== */
+.pro-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-radius: var(--radius-pill);
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.pro-btn-primary {
+  background: #ffffff;
+  color: #000000;
+  box-shadow: 0 4px 20px rgba(255, 255, 255, 0.2);
+}
+
+.pro-btn-primary:hover {
+  transform: scale(1.03);
+  box-shadow: 0 6px 28px rgba(255, 255, 255, 0.35);
+}
+
+.pro-btn-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-white);
+  border: 1px solid var(--border-hairline);
+  backdrop-filter: blur(12px);
+}
+
+.pro-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: scale(1.02);
+}
+
+.pro-btn-tertiary {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.pro-btn-tertiary:hover {
+  color: var(--text-white);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.pro-btn-sm {
+  padding: 6px 16px;
+  font-size: 0.82rem;
+}
+
+.pro-btn-lg {
+  padding: 14px 34px;
+  font-size: 1.05rem;
+}
+
+/* ==========================================================================
+   Hero Section (Cinematic Art Studio Presence)
+   ========================================================================== */
+.hero-container {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 160px 24px 80px;
+  background: radial-gradient(circle at 50% 18%, rgba(34, 197, 94, 0.16) 0%, rgba(16, 185, 129, 0.06) 35%, rgba(0, 0, 0, 0) 70%), #000000;
+  overflow: hidden;
+}
+
+.text-subheading {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--accent-slime-neon);
+  margin-bottom: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hero-heading {
+  font-size: clamp(3.2rem, 7.5vw, 6.4rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.02;
+  margin-bottom: 24px;
+  max-width: 1000px;
+}
+
+.gradient-title {
+  background: linear-gradient(135deg, #ffffff 30%, rgba(255, 255, 255, 0.6) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gradient-accent {
+  background: linear-gradient(135deg, #00f59b 0%, #22c55e 50%, #86efac 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.hero-description {
+  font-size: clamp(1.1rem, 2vw, 1.35rem);
+  color: var(--text-secondary);
+  max-width: 680px;
+  margin: 0 auto 40px;
+  line-height: 1.65;
+  font-weight: 400;
+}
+
+.hero-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 36px;
+}
+
+/* Quick Start Shell Bar */
+.cli-box {
+  background: rgba(14, 22, 16, 0.88);
+  border: 1px solid rgba(34, 197, 94, 0.32);
+  padding: 10px 18px;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 24px rgba(34, 197, 94, 0.12);
+  margin-bottom: 60px;
+  backdrop-filter: blur(20px);
+  max-width: 92vw;
+}
+
+.cli-code {
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  color: #00f59b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.cli-prompt {
+  color: rgba(255, 255, 255, 0.38);
+  user-select: none;
+  font-weight: 600;
+}
+
+.cli-copy-btn {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: #34d399;
+  cursor: pointer;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 0.8rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.cli-copy-btn:hover {
+  background: rgba(34, 197, 94, 0.3);
+  border-color: rgba(34, 197, 94, 0.6);
+  color: #ffffff;
+  transform: scale(1.02);
+}
+}
+
+/* Hero Showcase Canvas Window */
+.hero-showcase-frame {
+  width: 100%;
+  max-width: 1140px;
+  margin: 0 auto;
+  border-radius: var(--radius-xl);
+  background: var(--bg-surface-1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.95), 0 0 80px rgba(138, 43, 226, 0.25);
+  overflow: hidden;
+  position: relative;
+}
+
+.showcase-window-bar {
+  height: 46px;
+  background: #111116;
+  border-bottom: 1px solid var(--border-hairline);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  position: relative;
+}
+
+.window-dots {
+  display: flex;
+  gap: 7px;
+}
+
+.w-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+}
+.w-dot-red { background: #ff5f56; }
+.w-dot-yellow { background: #ffbd2e; }
+.w-dot-green { background: #27c93f; }
+
+.window-center-label {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.82rem;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.hero-showcase-img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* ==========================================================================
+   Bento Product Tiles Grid (The Procreate Signature Layout)
+   ========================================================================== */
+.bento-section {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 80px 24px 120px;
+}
+
+.bento-header {
+  text-align: center;
+  margin-bottom: 70px;
+}
+
+.section-headline {
+  font-size: clamp(2.4rem, 5vw, 3.8rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin-top: 12px;
+  margin-bottom: 16px;
+}
+
+.section-subhead {
+  font-size: 1.15rem;
+  color: var(--text-secondary);
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 28px;
+  margin-bottom: 28px;
+}
+
+.bento-tile {
+  background: var(--bg-surface-1);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+}
+
+.bento-tile:hover {
+  transform: translateY(-4px);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.7), 0 0 40px rgba(138, 43, 226, 0.15);
+}
+
+.bento-tile-copy {
+  padding: 44px 44px 24px;
+}
+
+.tile-tag {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent-magenta);
+  margin-bottom: 10px;
+  display: block;
+}
+
+.tile-title {
+  font-size: clamp(1.8rem, 2.5vw, 2.4rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin-bottom: 14px;
+}
+
+.tile-text {
+  font-size: 1.02rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.tile-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* Edge-to-edge media at the bottom of the tile (Procreate hallmark) */
+.bento-tile-media {
+  width: 100%;
+  margin-top: 10px;
+  overflow: hidden;
+  position: relative;
+  background: #09090c;
+}
+
+.bento-tile-media img {
+  width: 100%;
+  height: auto;
+  display: block;
+  transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bento-tile:hover .bento-tile-media img {
+  transform: scale(1.03);
+}
+
+/* Full Width Tile */
+.bento-tile-full {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  align-items: center;
+}
+
+.bento-tile-full .bento-tile-copy {
+  padding: 60px 48px;
+}
+
+.bento-tile-full .bento-tile-media {
+  margin-top: 0;
+  height: 100%;
+}
+
+.bento-tile-full .bento-tile-media img {
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 3-Column Feature Cards */
+.triple-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-top: 28px;
+}
+
+.feature-card {
+  background: var(--bg-surface-1);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  padding: 36px 30px;
+  transition: all 0.3s ease;
+}
+
+.feature-card:hover {
+  background: var(--bg-surface-2);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-3px);
+}
+
+.feature-icon-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-hairline);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  margin-bottom: 20px;
+}
+
+.feature-card h4 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 10px;
+}
+
+.feature-card p {
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+/* ==========================================================================
+   Screenshot media
+   ========================================================================== */
+.screenshot-slot {
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+.screenshot-slot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* ==========================================================================
+   Bottom Action Banner & Footer
+   ========================================================================== */
+.footer-cta {
+  background: radial-gradient(circle at 50% 100%, rgba(247, 35, 91, 0.12) 0%, rgba(0, 0, 0, 0) 70%), #000000;
+  border-top: 1px solid var(--border-hairline);
+  padding: 120px 24px;
+  text-align: center;
+}
+
+.footer-cta h2 {
+  font-size: clamp(2.6rem, 5vw, 4.2rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin-bottom: 16px;
+}
+
+.site-footer {
+  border-top: 1px solid var(--border-hairline);
+  padding: 50px 40px;
+  max-width: 1240px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  color: var(--text-tertiary);
+  font-size: 0.88rem;
+}
+
+.footer-nav {
+  display: flex;
+  gap: 28px;
+}
+
+.footer-nav a:hover {
+  color: var(--text-white);
+}
+
+/* ==========================================================================
+   Responsive Breakpoints
+   ========================================================================== */
+@media (max-width: 1024px) {
+  .bento-grid {
+    grid-template-columns: 1fr;
+  }
+  .bento-tile-full {
+    grid-template-columns: 1fr;
+  }
+  .triple-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .nav-items {
+    display: none;
+  }
+  .site-nav {
+    padding: 8px 16px;
+  }
+  .bento-tile-copy {
+    padding: 32px 24px 16px;
+  }
+  .hero-heading {
+    font-size: 2.8rem;
+  }
+}
+
+/* ==========================================================================
+   Realtime GitHub Star Pill Button (Refined Procreate / Native Mac Style)
+   ========================================================================== */
+.gh-star-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #e6edf3;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.gh-star-pill:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(34, 197, 94, 0.45);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.gh-star-icon {
+  color: #8b949e;
+  flex-shrink: 0;
+  transition: color 0.2s ease;
+}
+
+.gh-star-pill:hover .gh-star-icon {
+  color: #38ef7d;
+}
+
+.gh-star-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #e6edf3;
+}
+
+.gh-star-divider {
+  width: 1px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.16);
+  margin: 0 1px;
+}
+
+.github-stars-count {
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  line-height: 1.4;
+}
+
+/* ==========================================================================
+   Legal & Policy Pages (Privacy & Terms)
+   ========================================================================== */
+.legal-page-header {
+  padding: 160px 24px 50px;
+  text-align: center;
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.legal-title {
+  font-size: clamp(2.6rem, 5vw, 4rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin-top: 12px;
+  margin-bottom: 14px;
+}
+
+.legal-updated {
+  font-size: 0.9rem;
+  color: var(--text-tertiary);
+}
+
+.legal-container {
+  max-width: 860px;
+  margin: 0 auto 120px;
+  padding: 0 24px;
+}
+
+.legal-card {
+  background: var(--bg-surface-1);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-xl);
+  padding: 56px 48px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+}
+
+.legal-section {
+  margin-bottom: 44px;
+}
+
+.legal-section:last-child {
+  margin-bottom: 0;
+}
+
+.legal-section h3 {
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 16px;
+  color: #ffffff;
+}
+
+.legal-section p,
+.legal-section li {
+  color: var(--text-secondary);
+  font-size: 0.98rem;
+  line-height: 1.75;
+  margin-bottom: 14px;
+}
+
+.legal-section ul {
+  margin-left: 24px;
+  margin-bottom: 18px;
+}
+
+@media (max-width: 600px) {
+  .legal-card {
+    padding: 36px 24px;
+  }
+}
