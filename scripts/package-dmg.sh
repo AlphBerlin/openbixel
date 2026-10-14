@@ -26,6 +26,12 @@ PAYPAL_CLIENT_ID="${PAYPAL_CLIENT_ID:-}"
 PAYPAL_CLIENT_SECRET="${PAYPAL_CLIENT_SECRET:-}"
 PAYPAL_ENV="${PAYPAL_ENV:-sandbox}"
 
+DEPLOY_ENV_FILE="${BIXEL_DEPLOY_ENV:-$ROOT/.env.deploy}"
+if [[ -f "$DEPLOY_ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$DEPLOY_ENV_FILE"
+fi
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --version|-v)
@@ -130,8 +136,18 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
-echo "==> Ensuring ad-hoc code signature on $APP_PATH"
-codesign --force --deep --sign - "$APP_PATH"
+DEVELOPER_ID_IDENTITY="${DEVELOPER_ID_IDENTITY:-${DEVELOPER_ID_SIGN_IDENTITY:-}}"
+if [[ -z "$DEVELOPER_ID_IDENTITY" ]]; then
+  DEVELOPER_ID_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application:" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
+fi
+
+if [[ -n "$DEVELOPER_ID_IDENTITY" ]]; then
+  echo "==> Signing application with Developer ID: $DEVELOPER_ID_IDENTITY"
+  codesign --force --deep --options runtime --timestamp --sign "$DEVELOPER_ID_IDENTITY" "$APP_PATH"
+else
+  echo "==> Ensuring ad-hoc code signature on $APP_PATH"
+  codesign --force --deep --sign - "$APP_PATH"
+fi
 
 STAGING_DIR="$ROOT/build/dmg_staging"
 rm -rf "$STAGING_DIR"
@@ -151,6 +167,22 @@ hdiutil create -volname "Bixel Studio" \
   -srcfolder "$STAGING_DIR" \
   -ov -format UDZO \
   "$DMG_PATH"
+
+if [[ -n "$DEVELOPER_ID_IDENTITY" ]]; then
+  echo "==> Signing DMG with Developer ID: $DEVELOPER_ID_IDENTITY"
+  codesign --force --sign "$DEVELOPER_ID_IDENTITY" --timestamp "$DMG_PATH"
+
+  KEY_PATH="${APPSTORE_API_KEY_PATH:-$ROOT/private_keys/AuthKey_${APPSTORE_API_KEY_ID:-}.p8}"
+  if [[ -n "${APPSTORE_API_KEY_ID:-}" && -n "${APPSTORE_API_ISSUER_ID:-}" && -f "$KEY_PATH" ]]; then
+    echo "==> Submitting DMG to Apple Notary Service"
+    if xcrun notarytool submit "$DMG_PATH" --key "$KEY_PATH" --key-id "$APPSTORE_API_KEY_ID" --issuer "$APPSTORE_API_ISSUER_ID" --wait; then
+      echo "==> Stapling notarization ticket to DMG"
+      xcrun stapler staple "$DMG_PATH"
+    else
+      echo "warning: Notarization submission failed" >&2
+    fi
+  fi
+fi
 
 echo "==> Generating SHA-256 checksum"
 (cd "$OUTPUT_DIR" && shasum -a 256 "$DMG_NAME" > "${DMG_NAME}.sha256")
