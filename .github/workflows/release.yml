@@ -52,6 +52,15 @@ jobs:
           echo "clean_version=${CLEAN_VER}" >> "$GITHUB_OUTPUT"
           echo "Target Release Tag: ${TAG} (Version: ${CLEAN_VER})"
 
+      - name: Select Xcode Version
+        run: |
+          XCODE_16_PATH=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$XCODE_16_PATH" ]; then
+            echo "Selecting $XCODE_16_PATH"
+            sudo xcode-select -s "$XCODE_16_PATH/Contents/Developer"
+          fi
+          xcodebuild -version
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -70,6 +79,7 @@ jobs:
       - name: Generate Xcode Project
         run: |
           xcodegen generate
+          sed -i '' 's/objectVersion = 77;/objectVersion = 56;/' Bixel.xcodeproj/project.pbxproj || true
 
       - name: Build Rust Core
         run: |
@@ -94,12 +104,16 @@ jobs:
         env:
           PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
           PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
-          PAYPAL_ENV: ${{ vars.PAYPAL_ENV || 'sandbox' }}
+          PAYPAL_ENV: ${{ secrets.PAYPAL_ENV || vars.PAYPAL_ENV || 'sandbox' }}
 
       - name: Package DMG
         run: |
           chmod +x ./scripts/package-dmg.sh
           ./scripts/package-dmg.sh --version "${{ steps.version.outputs.tag }}"
+        env:
+          PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
+          PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+          PAYPAL_ENV: ${{ secrets.PAYPAL_ENV || vars.PAYPAL_ENV || 'sandbox' }}
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4

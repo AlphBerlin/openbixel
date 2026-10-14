@@ -101,6 +101,7 @@ if [[ "$DO_BUILD" -eq 1 ]]; then
 
   echo "==> Generating Xcode project"
   (cd "$ROOT" && xcodegen generate)
+  sed -i '' 's/objectVersion = 77;/objectVersion = 56;/' "$ROOT/Bixel.xcodeproj/project.pbxproj" 2>/dev/null || true
 
   echo "==> Building Rust static library"
   (cd "$ROOT" && ./scripts/build-rust.sh)

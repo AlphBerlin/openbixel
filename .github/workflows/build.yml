@@ -46,6 +46,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Select Xcode Version
+        run: |
+          XCODE_16_PATH=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$XCODE_16_PATH" ]; then
+            echo "Selecting $XCODE_16_PATH"
+            sudo xcode-select -s "$XCODE_16_PATH/Contents/Developer"
+          fi
+          xcodebuild -version
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -56,7 +65,9 @@ jobs:
         run: brew install xcodegen cbindgen
 
       - name: Generate Xcode Project
-        run: xcodegen generate
+        run: |
+          xcodegen generate
+          sed -i '' 's/objectVersion = 77;/objectVersion = 56;/' Bixel.xcodeproj/project.pbxproj || true
 
       - name: Build Rust Core Static Library
         run: ./scripts/build-rust.sh
@@ -73,4 +84,11 @@ jobs:
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
+            PAYPAL_CLIENT_ID="${PAYPAL_CLIENT_ID:-}" \
+            PAYPAL_CLIENT_SECRET="${PAYPAL_CLIENT_SECRET:-}" \
+            PAYPAL_ENV="${PAYPAL_ENV:-sandbox}" \
             build
+        env:
+          PAYPAL_CLIENT_ID: ${{ secrets.PAYPAL_CLIENT_ID }}
+          PAYPAL_CLIENT_SECRET: ${{ secrets.PAYPAL_CLIENT_SECRET }}
+          PAYPAL_ENV: ${{ secrets.PAYPAL_ENV || vars.PAYPAL_ENV || 'sandbox' }}
