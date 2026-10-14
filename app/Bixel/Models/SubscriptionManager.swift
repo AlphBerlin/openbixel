@@ -103,9 +103,11 @@ final class SubscriptionManager: NSObject, ObservableObject {
     }
 
     static var configuredEnvironment: PayPalEnvironment {
-        if let env = Bundle.main.object(forInfoDictionaryKey: envInfoPlistKey) as? String,
-           env.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "live" {
-            return .live
+        if let env = Bundle.main.object(forInfoDictionaryKey: envInfoPlistKey) as? String {
+            let lower = env.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if lower == "live" || lower == "production" || lower == "prod" {
+                return .live
+            }
         }
         return .sandbox
     }
@@ -301,7 +303,9 @@ final class SubscriptionManager: NSObject, ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
 
-        let authString = "\(clientID):\(clientSecret)"
+        let cleanID = clientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        let authString = "\(cleanID):\(cleanSecret)"
         guard let authData = authString.data(using: .utf8) else {
             throw PayPalError.invalidCredentials
         }

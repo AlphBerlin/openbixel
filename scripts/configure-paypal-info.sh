@@ -11,13 +11,27 @@ configured_client_id="${PAYPAL_CLIENT_ID:-}"
 configured_client_secret="${PAYPAL_CLIENT_SECRET:-}"
 configured_env="${PAYPAL_ENV:-sandbox}"
 
-if [[ -z "${configured_client_id//[[:space:]]/}" && "${CONFIGURATION:-Debug}" == "Debug" && -f "$DEV_ENV_FILE" ]]; then
+PROD_ENV_FILE="${BIXEL_PROD_ENV:-$ROOT/.env}"
+
+if [[ -z "${configured_client_id//[[:space:]]/}" ]]; then
   # shellcheck disable=SC1091
   source "$ROOT/scripts/load-build-env.sh"
-  load_build_env "$DEV_ENV_FILE"
-  configured_client_id="${PAYPAL_CLIENT_ID:-}"
-  configured_client_secret="${PAYPAL_CLIENT_SECRET:-}"
-  configured_env="${PAYPAL_ENV:-sandbox}"
+  if [[ "${CONFIGURATION:-Debug}" == "Release" && -f "$PROD_ENV_FILE" ]]; then
+    load_build_env "$PROD_ENV_FILE"
+    configured_client_id="${PAYPAL_CLIENT_ID:-}"
+    configured_client_secret="${PAYPAL_CLIENT_SECRET:-}"
+    configured_env="${PAYPAL_ENV:-live}"
+  elif [[ -f "$DEV_ENV_FILE" ]]; then
+    load_build_env "$DEV_ENV_FILE"
+    configured_client_id="${PAYPAL_CLIENT_ID:-}"
+    configured_client_secret="${PAYPAL_CLIENT_SECRET:-}"
+    configured_env="${PAYPAL_ENV:-sandbox}"
+  elif [[ -f "$PROD_ENV_FILE" ]]; then
+    load_build_env "$PROD_ENV_FILE"
+    configured_client_id="${PAYPAL_CLIENT_ID:-}"
+    configured_client_secret="${PAYPAL_CLIENT_SECRET:-}"
+    configured_env="${PAYPAL_ENV:-live}"
+  fi
 fi
 
 if [[ ! -f "$INFO_PLIST_PATH" ]]; then
@@ -45,4 +59,10 @@ else
   set_or_add "PayPalClientSecret" '$(PAYPAL_CLIENT_SECRET)'
 fi
 
-set_or_add "PayPalEnv" "$configured_env"
+norm_env=$(printf '%s' "$configured_env" | tr '[:upper:]' '[:lower:]')
+if [[ "$norm_env" == "live" || "$norm_env" == "production" || "$norm_env" == "prod" ]]; then
+  norm_env="live"
+else
+  norm_env="sandbox"
+fi
+set_or_add "PayPalEnv" "$norm_env"

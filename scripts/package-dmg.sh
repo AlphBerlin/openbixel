@@ -15,16 +15,27 @@ OUTPUT_DIR="$ROOT/build/dist"
 DO_BUILD=0
 DRY_RUN=0
 
+PROD_ENV_FILE="${BIXEL_PROD_ENV:-$ROOT/.env}"
 DEV_ENV_FILE="${BIXEL_DEV_ENV:-$ROOT/.env.dev}"
 # shellcheck disable=SC1091
 source "$ROOT/scripts/load-build-env.sh"
-if [[ -f "$DEV_ENV_FILE" ]]; then
+if [[ -f "$PROD_ENV_FILE" ]]; then
+  echo "==> Loading production app config: $PROD_ENV_FILE"
+  load_build_env "$PROD_ENV_FILE"
+elif [[ -f "$DEV_ENV_FILE" ]]; then
   echo "==> Loading development app config: $DEV_ENV_FILE"
   load_build_env "$DEV_ENV_FILE"
 fi
+
 PAYPAL_CLIENT_ID="${PAYPAL_CLIENT_ID:-}"
 PAYPAL_CLIENT_SECRET="${PAYPAL_CLIENT_SECRET:-}"
-PAYPAL_ENV="${PAYPAL_ENV:-sandbox}"
+
+norm_paypal_env=$(printf '%s' "${PAYPAL_ENV:-sandbox}" | tr '[:upper:]' '[:lower:]')
+if [[ "$norm_paypal_env" == "live" || "$norm_paypal_env" == "production" || "$norm_paypal_env" == "prod" ]]; then
+  PAYPAL_ENV="live"
+else
+  PAYPAL_ENV="sandbox"
+fi
 
 DEPLOY_ENV_FILE="${BIXEL_DEPLOY_ENV:-$ROOT/.env.deploy}"
 if [[ -f "$DEPLOY_ENV_FILE" ]]; then
