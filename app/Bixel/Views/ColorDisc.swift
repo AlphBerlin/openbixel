@@ -89,7 +89,9 @@ struct ColorDisc: View {
 
     private func hueMarker(center: CGPoint, radius: CGFloat) -> CGPoint {
         let rad = hue * .pi / 180
-        return CGPoint(x: center.x + cos(rad) * radius, y: center.y - sin(rad) * radius)
+        let x = center.x + CGFloat(Darwin.cos(rad)) * radius
+        let y = center.y - CGFloat(Darwin.sin(rad)) * radius
+        return CGPoint(x: x, y: y)
     }
 
     private func svMarker(center: CGPoint, radius: CGFloat) -> CGPoint {
@@ -107,7 +109,7 @@ struct ColorDisc: View {
 
         if dist >= innerR && dist <= outerR {
             // Ring region -> hue.
-            var angle = atan2(-dy, dx) * 180 / .pi
+            var angle = Double(atan2(-dy, dx) * 180 / .pi)
             if angle < 0 { angle += 360 }
             hue = angle
         } else if abs(dx) <= squareR && abs(dy) <= squareR {
