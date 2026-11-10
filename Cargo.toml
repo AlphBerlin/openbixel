@@ -10,7 +10,7 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/anomalyco/langtown"
+repository = "https://github.com/AlphBerlin/openbixel"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }

@@ -45,7 +45,7 @@ Answer **Data Collection** based on what the app actually does:
 | Usage / Diagnostics | No | No analytics or crash SDK is bundled. |
 | User Content | No | Projects, images and prompts stay on device; prompts are sent to the configured AI provider only when the user invokes an AI action. |
 
-Privacy Policy URL: `https://ajithberlin.github.io/bixel-native/privacy.html`.
+Privacy Policy URL: `https://alphberlin.github.io/openbixel/privacy.html`.
 Tracking: **No** — the app does not track users across apps/websites.
 The app does not bundle a Google Mobile Ads SDK or use behavioural advertising.
 It fetches clearly labelled house-ad creatives from a published HTTPS feed; no
@@ -121,9 +121,9 @@ Draw, animate and build tilemaps in one native Mac studio. Includes an AI assist
 
 | Field | Value |
 |---|---|
-| Support URL | `https://ajithberlin.github.io/bixel-native/support.html` |
-| Marketing URL | `https://ajithberlin.github.io/bixel-native/` |
-| Privacy Policy URL | `https://ajithberlin.github.io/bixel-native/privacy.html` |
+| Support URL | `https://alphberlin.github.io/openbixel/support.html` |
+| Marketing URL | `https://alphberlin.github.io/openbixel/` |
+| Privacy Policy URL | `https://alphberlin.github.io/openbixel/privacy.html` |
 
 ### Build
 

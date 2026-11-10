@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 2. Realtime GitHub Stars Loader
-  const repo = 'ajithberlin/bixel-native';
+  const repo = 'AlphBerlin/openbixel';
   const cacheKey = `gh_stars_${repo}`;
   const starCountEls = document.querySelectorAll('.github-stars-count');
 

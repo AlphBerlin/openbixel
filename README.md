@@ -4,6 +4,8 @@
 
 # OpenBixel
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 ![OpenBixel](assets/bixel-studio-pixel-art.jpg)
 
 **OpenBixel** is a native macOS 2D game-asset studio designed for pixel artists, game developers, and animators. Built from the ground up for Apple Silicon with a sleek Procreate-style dark interface, OpenBixel pairs high-performance native Metal rendering with a powerful Rust engine and an integrated AI assistant.
@@ -52,15 +54,15 @@
 Clone the repository and run the automated start script:
 
 ```bash
-git clone https://github.com/ajithberlin/bixel-native.git
-cd bixel-native
+git clone https://github.com/AlphBerlin/openbixel.git
+cd openbixel
 ./scripts/start.sh
 ```
 
 Or run the one-liner directly:
 
 ```bash
-git clone https://github.com/ajithberlin/bixel-native.git && cd bixel-native && ./scripts/start.sh
+git clone https://github.com/AlphBerlin/openbixel.git && cd openbixel && ./scripts/start.sh
 ```
 
 Then press **Cmd + R** in Xcode to run the app.
@@ -76,3 +78,12 @@ Then press **Cmd + R** in Xcode to run the app.
 
 Explore the complete [OpenBixel Handbook](site/handbook/index.html) for detailed guides on the interface, drawing tools, keyboard shortcuts, animation timeline, tilemap designer, and AI assistant skills.
 
+## License
+
+OpenBixel is open source under the [MIT License](LICENSE). You may use, modify,
+and distribute the software, including commercially, provided you retain the
+copyright and permission notices. The software is provided without warranty.
+
+Third-party components retain their own licenses and notices, including the
+bundled [skill-creator license](skills/skill-creator/LICENSE.txt). AI services
+remain subject to their providers' terms.
